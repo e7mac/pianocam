@@ -1,0 +1,8 @@
+.DS_Store
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcworkspace/xcuserdata/
+PianoCam.xcodeproj/xcuserdata/
+PianoCam.xcodeproj/project.xcworkspace/xcuserdata/
