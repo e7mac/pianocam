@@ -70,9 +70,12 @@ enum PianoOverlay {
     }
 
     private static func fillActiveWhite(ctx: CGContext, rect: CGRect, cs: CGColorSpace, velocity: UInt8) {
+        // Brightness scales 0.25 (whisper) → 1.0 (fortissimo) with a floor so
+        // soft notes are still visible.
         let i = CGFloat(velocity) / 127.0
-        let glow = CGColor(red: 0.35 + 0.25 * i, green: 0.75 + 0.20 * i, blue: 1.0, alpha: 1)
-        let deeper = CGColor(red: 0.18 + 0.20 * i, green: 0.55 + 0.25 * i, blue: 0.92, alpha: 1)
+        let scale = 0.25 + 0.75 * i
+        let glow   = CGColor(red: 0.45 * scale + 0.10, green: 0.85 * scale + 0.10, blue: scale * 0.95 + 0.05, alpha: 1)
+        let deeper = CGColor(red: 0.10 * scale,         green: 0.40 * scale + 0.05, blue: 0.85 * scale,         alpha: 1)
         if let g = CGGradient(colorsSpace: cs, colors: [glow, deeper] as CFArray, locations: [0, 1]) {
             ctx.drawLinearGradient(g, start: CGPoint(x: rect.midX, y: rect.maxY), end: CGPoint(x: rect.midX, y: rect.minY), options: [])
         }
@@ -115,8 +118,9 @@ enum PianoOverlay {
 
     private static func fillActiveBlack(ctx: CGContext, rect: CGRect, cs: CGColorSpace, velocity: UInt8) {
         let i = CGFloat(velocity) / 127.0
-        let glow = CGColor(red: 0.20 + 0.30 * i, green: 0.65 + 0.30 * i, blue: 1.0, alpha: 1)
-        let deeper = CGColor(red: 0.08 + 0.18 * i, green: 0.30 + 0.30 * i, blue: 0.70, alpha: 1)
+        let scale = 0.25 + 0.75 * i
+        let glow   = CGColor(red: 0.30 * scale + 0.05, green: 0.75 * scale + 0.05, blue: scale * 0.95 + 0.05, alpha: 1)
+        let deeper = CGColor(red: 0.06 * scale,         green: 0.25 * scale,         blue: 0.65 * scale,         alpha: 1)
         if let g = CGGradient(colorsSpace: cs, colors: [glow, deeper] as CFArray, locations: [0, 1]) {
             ctx.drawLinearGradient(g, start: CGPoint(x: rect.midX, y: rect.maxY), end: CGPoint(x: rect.midX, y: rect.minY), options: [])
         }
