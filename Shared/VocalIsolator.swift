@@ -233,10 +233,24 @@ final class VocalIsolator {
         let outCStride = outStrides[1]
         let outBStride = outStrides[2]
         let outFStride = outStrides[3]
-        let outPtr = outArr.dataPointer.bindMemory(to: Float.self, capacity: outArr.count)
         if !loggedStrides {
             NSLog("VocalIsolator: output shape=\(outArr.shape) strides=\(outArr.strides) count=\(outArr.count)")
             loggedStrides = true
+        }
+
+        // CoreML's output MLMultiArray is a thin view into memory owned by the
+        // FeatureProvider; ARC may release `out` once `outArr` is unwrapped.
+        // Copy under withExtendedLifetime to a Swift array so the iteration
+        // loop below uses memory we own.
+        let outCount = outArr.count
+        var outScalars = [Float](repeating: 0, count: outCount)
+        withExtendedLifetime(out) {
+            withExtendedLifetime(outArr) {
+                let outPtr = outArr.dataPointer.bindMemory(to: Float.self, capacity: outCount)
+                outScalars.withUnsafeMutableBufferPointer { dst in
+                    dst.baseAddress!.update(from: outPtr, count: outCount)
+                }
+            }
         }
 
         // Unpack output → real/imag arrays sized [n_bins, n_frames]. Bins
@@ -245,10 +259,10 @@ final class VocalIsolator {
         var outImagLR = [Float](repeating: 0, count: nBins * segmentSize)
         for f in 0..<segmentSize {
             for b in 0..<dimF {
-                let lr = outPtr[0 * outCStride + b * outBStride + f * outFStride]
-                let li = outPtr[1 * outCStride + b * outBStride + f * outFStride]
-                let rr = outPtr[2 * outCStride + b * outBStride + f * outFStride]
-                let ri = outPtr[3 * outCStride + b * outBStride + f * outFStride]
+                let lr = outScalars[0 * outCStride + b * outBStride + f * outFStride]
+                let li = outScalars[1 * outCStride + b * outBStride + f * outFStride]
+                let rr = outScalars[2 * outCStride + b * outBStride + f * outFStride]
+                let ri = outScalars[3 * outCStride + b * outBStride + f * outFStride]
                 outRealLR[b * segmentSize + f] = (lr + rr) * 0.5 * compensate
                 outImagLR[b * segmentSize + f] = (li + ri) * 0.5 * compensate
             }
@@ -357,7 +371,8 @@ final class VocalIsolator {
             }
             // Inverse DFT in vDSP isn't normalized; divide by N. Imag part
             // should be ~0 for a real signal — discard it.
-            vDSP_vsmul(outReal, 1, [scale], &outReal, 1, vDSP_Length(nFFT))
+            var s = scale
+            vDSP_vsmul(outReal, 1, &s, &outReal, 1, vDSP_Length(nFFT))
 
             // Apply synthesis window + overlap-add.
             let off = f * hopLength
