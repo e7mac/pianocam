@@ -32,8 +32,18 @@ final class BasicPitchInference {
     /// Audio at the model's native sample rate (22050 Hz).
     private var ring: [Float] = []
     private var samplesSinceLastInference: Int = 0
-    private let inferenceStride = 5_512              // ~250 ms at 22050 Hz
     private var inferring = false
+
+    /// Inference cadence in samples at 22050 Hz. Lower = lower latency, higher
+    /// CPU/ANE load. If a window's inference doesn't finish before the next
+    /// stride boundary, the next tick is skipped (back-pressure via `inferring`).
+    private var inferenceStride: Int { Int(settings.inferenceIntervalSeconds * Self.modelSampleRate) }
+    /// Tail frames analyzed after each inference, sized to match the stride so
+    /// every onset is detected exactly once across consecutive inferences.
+    private var tailFrames: Int {
+        let s = max(1, Int((Double(inferenceStride) / Double(Self.modelWindowSamples) * Double(Self.modelFrames)).rounded()))
+        return min(Self.modelFrames, s + 1)   // +1 frame slack to avoid boundary races
+    }
 
     /// Notes currently considered "on" by the model (set of MIDI numbers).
     private var activeNotes: Set<UInt8> = []
@@ -45,6 +55,11 @@ final class BasicPitchInference {
         var frameThreshold: Float = 0.20
         var sustainedFraction: Float = 0.25
         var minHoldSeconds: TimeInterval = 0.12
+        /// Inference cadence — lower = lower latency, higher CPU. Average
+        /// note-on latency ≈ this/2 + ~30 ms (model compute) + ~30–50 ms
+        /// (model's inherent post-onset context). On Apple Silicon with the
+        /// ANE, 0.10–0.15 s is comfortable.
+        var inferenceIntervalSeconds: Double = 0.125
         /// When true, audio chunks classified as speech are dropped before
         /// reaching the model. Cuts vocal-induced false positives, but the
         /// existing VAD over-rejects at small live-buffer sizes — leave off
@@ -195,8 +210,8 @@ final class BasicPitchInference {
     private func processOutput(noteArr: MLMultiArray, onsetArr: MLMultiArray, audioPeak: Float) {
         let frameCount = Self.modelFrames
         let pitchCount = Self.modelPitches
-        // Analyze the most-recent ~stride frames (250 ms ≈ 22 frames @ 86 fps).
-        let tailFrames = 22
+        // Analyze just enough recent frames to cover one inference stride;
+        // larger tails would re-detect onsets we already emitted last tick.
         let startFrame = max(0, frameCount - tailFrames)
 
         let nPtr = noteArr.dataPointer.bindMemory(to: Float.self, capacity: noteArr.count)
