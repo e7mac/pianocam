@@ -23,11 +23,13 @@ final class ExtensionInstaller: NSObject, ObservableObject {
 
     @Published private(set) var status: Status = .idle
 
-    static let extensionBundleIdentifier = "com.mayank.pianocam.extension"
-
     func install() {
+        guard let id = Self.embeddedExtensionIdentifier() else {
+            status = .failed("Extension bundle not found inside app")
+            return
+        }
         let request = OSSystemExtensionRequest.activationRequest(
-            forExtensionWithIdentifier: Self.extensionBundleIdentifier,
+            forExtensionWithIdentifier: id,
             queue: .main
         )
         request.delegate = self
@@ -36,13 +38,30 @@ final class ExtensionInstaller: NSObject, ObservableObject {
     }
 
     func uninstall() {
+        guard let id = Self.embeddedExtensionIdentifier() else {
+            status = .failed("Extension bundle not found inside app")
+            return
+        }
         let request = OSSystemExtensionRequest.deactivationRequest(
-            forExtensionWithIdentifier: Self.extensionBundleIdentifier,
+            forExtensionWithIdentifier: id,
             queue: .main
         )
         request.delegate = self
         status = .installing
         OSSystemExtensionManager.shared.submitRequest(request)
+    }
+
+    /// Reads the extension's CFBundleIdentifier from the embedded
+    /// `Contents/Library/SystemExtensions/*.systemextension` so the
+    /// activation request matches the real bundle layout.
+    private static func embeddedExtensionIdentifier() -> String? {
+        let dir = URL(fileURLWithPath: "Contents/Library/SystemExtensions",
+                      relativeTo: Bundle.main.bundleURL)
+        guard let urls = try? FileManager.default.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: nil, options: .skipsHiddenFiles
+        ), let url = urls.first(where: { $0.pathExtension == "systemextension" }),
+              let bundle = Bundle(url: url) else { return nil }
+        return bundle.bundleIdentifier
     }
 }
 
