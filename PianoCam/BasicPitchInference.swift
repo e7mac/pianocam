@@ -216,11 +216,18 @@ final class BasicPitchInference {
             }
         }
 
-        // Note-on / re-trigger: each peak-picked onset is a fresh attack. If
-        // the pitch is already active, emit a note-off first so the host sees
-        // the retrigger rather than a single sustained note.
+        // Note-on / re-trigger: each peak-picked onset is a fresh attack.
+        // BUT — during a sustain, the model's onset prob has small local
+        // maxima (harmonic / noise) that can cross threshold without being
+        // a real attack. Suppress retriggers within 120 ms of the previous
+        // note-on for the same pitch; that's still well below human-playable
+        // trill speeds (~125 ms / 8 Hz) but kills the noise retriggers.
+        let retriggerMinGap: TimeInterval = 0.12
         newOnsets.sort { $0.time < $1.time }
         for onset in newOnsets {
+            if let lastOn = noteOnTimes[onset.note], now - lastOn < retriggerMinGap {
+                continue
+            }
             if activeNotes.contains(onset.note) {
                 onEvent?(.noteOff(note: onset.note))
                 activeNotes.remove(onset.note)

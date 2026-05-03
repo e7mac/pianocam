@@ -438,8 +438,12 @@ private final class OfflineBasicPitchAnalyzer {
         var lastActiveAt: [UInt8: TimeInterval] = [:]
         var peakSinceOnset: [UInt8: Float] = [:]
         var events: [(TimeInterval, MIDIEvent)] = []
-        // Brief min-hold to suppress reverberant micro-retriggers.
-        let minHold: TimeInterval = 0.04
+        // Min gap between same-pitch onsets. Suppresses spurious retriggers
+        // from harmonic / noise peaks during a sustain (model onset prob
+        // isn't a clean spike — small local maxima cross threshold during
+        // long held notes). 120 ms is still well below human-playable
+        // trill speeds (~125 ms / 8 Hz).
+        let minHold: TimeInterval = 0.12
         let releaseGap: TimeInterval = 0.12
         // Adaptive offset: a held note is "still active" while its note-prob
         // stays above max(absoluteFloor, peakSinceOnset * relativeRatio). This
