@@ -443,8 +443,13 @@ private final class OfflineBasicPitchAnalyzer {
         // tracks piano's natural decay regardless of attack strength — loud
         // notes release fast even though their absolute prob stays > 0.40 for
         // a while; soft notes don't get prematurely cut.
-        let adaptiveAbsoluteFloor: Float = 0.10
-        let adaptiveRelativeRatio: Float = 0.5
+        let adaptiveAbsoluteFloor: Float = 0.15
+        let adaptiveRelativeRatio: Float = 0.7
+        // Hard ceiling on note duration — protects against bass notes /
+        // sympathetic resonance / pedal sustains where note-prob stays lazy
+        // for many seconds. Tuned to longer than typical pedal-sustained
+        // phrases but shorter than "obviously stuck."
+        let maxNoteDuration: TimeInterval = 3.0
 
         var windowStart = 0
         var firstWindow = true
@@ -541,12 +546,17 @@ private final class OfflineBasicPitchAnalyzer {
                 }
             }
 
-            // Sweep release: any held note that's been silent for releaseGap is off.
+            // Sweep release: held notes are turned off when EITHER:
+            //  - they've been "silent" (below adaptive floor) for releaseGap, OR
+            //  - they've been on past maxNoteDuration regardless of model.
             let windowEndTime = windowStartTime + Double(frameCount) * frameDuration
-            for (midi, _) in onTimes {
+            for (midi, onAt) in onTimes {
                 let last = lastActiveAt[midi] ?? 0
-                if windowEndTime - last > releaseGap {
-                    events.append((last + releaseGap, .noteOff(note: midi)))
+                let silentTooLong = windowEndTime - last > releaseGap
+                let heldTooLong = windowEndTime - onAt > maxNoteDuration
+                if silentTooLong || heldTooLong {
+                    let offTime = silentTooLong ? (last + releaseGap) : (onAt + maxNoteDuration)
+                    events.append((offTime, .noteOff(note: midi)))
                     onTimes.removeValue(forKey: midi)
                     peakSinceOnset.removeValue(forKey: midi)
                 }
