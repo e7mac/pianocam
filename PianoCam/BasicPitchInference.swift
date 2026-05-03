@@ -33,6 +33,7 @@ final class BasicPitchInference {
     private var ring: [Float] = []
     private var samplesSinceLastInference: Int = 0
     private var inferring = false
+    private var backPressureSkips = 0
 
     /// Inference cadence in samples at 22050 Hz. Lower = lower latency, higher
     /// CPU/ANE load. If a window's inference doesn't finish before the next
@@ -59,7 +60,7 @@ final class BasicPitchInference {
         /// note-on latency ≈ this/2 + ~30 ms (model compute) + ~30–50 ms
         /// (model's inherent post-onset context). On Apple Silicon with the
         /// ANE, 0.10–0.15 s is comfortable.
-        var inferenceIntervalSeconds: Double = 0.125
+        var inferenceIntervalSeconds: Double = 0.08
         /// When true, audio chunks classified as speech are dropped before
         /// reaching the model. Cuts vocal-induced false positives, but the
         /// existing VAD over-rejects at small live-buffer sizes — leave off
@@ -119,8 +120,17 @@ final class BasicPitchInference {
         }
         samplesSinceLastInference += resampled.count
         guard samplesSinceLastInference >= inferenceStride,
-              ring.count >= Self.modelWindowSamples,
-              !inferring else { return }
+              ring.count >= Self.modelWindowSamples else { return }
+        // Back-pressure: if the previous inference hasn't finished, skip this
+        // tick instead of queuing — but log it once in a while so the user
+        // notices when the cadence is too aggressive for the device.
+        if inferring {
+            backPressureSkips += 1
+            if backPressureSkips % 10 == 1 {
+                NSLog("PianoCam basicpitch: back-pressure — \(backPressureSkips) skipped ticks; consider raising inferenceIntervalSeconds")
+            }
+            return
+        }
         samplesSinceLastInference = 0
         inferring = true
         let snapshot = Array(ring.suffix(Self.modelWindowSamples))
