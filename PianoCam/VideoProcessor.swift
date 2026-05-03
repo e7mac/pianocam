@@ -378,9 +378,9 @@ final class VideoProcessor: ObservableObject {
 
     // MARK: - Helpers
 
-    private static func linearResample(_ src: [Float],
-                                       from srcRate: Double,
-                                       to dstRate: Double) -> [Float] {
+    private nonisolated static func linearResample(_ src: [Float],
+                                                   from srcRate: Double,
+                                                   to dstRate: Double) -> [Float] {
         if abs(srcRate - dstRate) < 1 { return src }
         let ratio = srcRate / dstRate
         let outCount = Int(Double(src.count) / ratio)
