@@ -64,7 +64,10 @@ struct ControlPanel: View {
     }
 
     private var basicPitchSettings: some View {
-        DisclosureGroup {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Basic Pitch settings")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 6) {
                 settingRow("Onset threshold",
                            value: $state.bpOnsetThreshold,
@@ -83,15 +86,9 @@ struct ControlPanel: View {
                            range: 0.0 ... 2.0,
                            help: "Each note stays lit for at least this long after detection, regardless of model output.")
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-        } label: {
-            Text("Basic Pitch settings")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 4)
+        .padding(.vertical, 8)
     }
 
     private func settingRow(_ title: String,
