@@ -22,6 +22,8 @@ class ViewController: NSViewController {
     private let cameraCapture = CameraCapture()
     private var latestCameraFrame: CVPixelBuffer?
     private let frameLock = NSLock()
+    private let pianoState = PianoState()
+    private let midiInput = MIDIInput()
     private var readyToEnqueue = false
     private var enqueued = false
     private var _videoDescription: CMFormatDescription!
@@ -277,6 +279,11 @@ class ViewController: NSViewController {
         }
         cameraCapture.start()
 
+        midiInput.onEvent = { [weak self] event in
+            self?.pianoState.handle(event)
+        }
+        midiInput.start()
+
         timer?.invalidate()
         timer = Timer.scheduledTimer(timeInterval: 1/30.0, target: self, selector: #selector(fireTimer), userInfo: nil, repeats: true)
         propTimer?.invalidate()
@@ -438,8 +445,8 @@ class ViewController: NSViewController {
             ctx.restoreGState()
         }
 
-        // Piano keyboard along the bottom 25% (no live notes yet).
-        PianoOverlay.draw(into: ctx, rect: dst)
+        // Piano keyboard along the bottom 25% with live MIDI highlights.
+        PianoOverlay.draw(into: ctx, rect: dst, activeNotes: pianoState.activeVelocities)
 
         return ctx.makeImage()
     }
