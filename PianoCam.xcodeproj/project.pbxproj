@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		2E7C6AA86994FE88AEBF224B /* HostState.swift in Sources */ = {isa = PBXBuildFile; fileRef = F137BDA3E7EC8F9B9B3963E0 /* HostState.swift */; };
+		426E1CCB277DF3FED07FBE52 /* ControlPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15C3519032B9556B6AD3044E /* ControlPanel.swift */; };
 		50E364166E92D49155FDB2B5 /* PianoState.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB15F4627C804220285EE490 /* PianoState.swift */; };
 		5D736BF14559E87C97963652 /* CameraCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E46B18EDE87317291CD818 /* CameraCapture.swift */; };
 		6A847E38119D23790E0CA259 /* PianoOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00FB38140ECBDF9C1231CBF6 /* PianoOverlay.swift */; };
@@ -49,9 +51,11 @@
 
 /* Begin PBXFileReference section */
 		00FB38140ECBDF9C1231CBF6 /* PianoOverlay.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PianoOverlay.swift; sourceTree = "<group>"; };
+		15C3519032B9556B6AD3044E /* ControlPanel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ControlPanel.swift; sourceTree = "<group>"; };
 		80E46B18EDE87317291CD818 /* CameraCapture.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CameraCapture.swift; sourceTree = "<group>"; };
 		A600A846F6B8348B5121964A /* MIDIInput.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MIDIInput.swift; sourceTree = "<group>"; };
 		DB15F4627C804220285EE490 /* PianoState.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PianoState.swift; sourceTree = "<group>"; };
+		F137BDA3E7EC8F9B9B3963E0 /* HostState.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HostState.swift; sourceTree = "<group>"; };
 		F990A865286F663F00159819 /* samplecamera.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = samplecamera.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F990A868286F663F00159819 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		F990A86A286F663F00159819 /* ViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewController.swift; sourceTree = "<group>"; };
@@ -123,6 +127,8 @@
 				80E46B18EDE87317291CD818 /* CameraCapture.swift */,
 				DB15F4627C804220285EE490 /* PianoState.swift */,
 				A600A846F6B8348B5121964A /* MIDIInput.swift */,
+				F137BDA3E7EC8F9B9B3963E0 /* HostState.swift */,
+				15C3519032B9556B6AD3044E /* ControlPanel.swift */,
 			);
 			path = PianoCam;
 			sourceTree = "<group>";
@@ -196,7 +202,7 @@
 					};
 				};
 			};
-			buildConfigurationList = F990A860286F663F00159819 /* Build configuration list for PBXProject "samplecamera" */;
+			buildConfigurationList = F990A860286F663F00159819 /* Build configuration list for PBXProject "PianoCam" */;
 			compatibilityVersion = "Xcode 13.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
@@ -246,6 +252,8 @@
 				5D736BF14559E87C97963652 /* CameraCapture.swift in Sources */,
 				50E364166E92D49155FDB2B5 /* PianoState.swift in Sources */,
 				89F73DA6AA0E84FF5E49D704 /* MIDIInput.swift in Sources */,
+				2E7C6AA86994FE88AEBF224B /* HostState.swift in Sources */,
+				426E1CCB277DF3FED07FBE52 /* ControlPanel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -510,7 +518,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		F990A860286F663F00159819 /* Build configuration list for PBXProject "samplecamera" */ = {
+		F990A860286F663F00159819 /* Build configuration list for PBXProject "PianoCam" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				F990A872286F664500159819 /* Debug */,

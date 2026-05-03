@@ -9,12 +9,11 @@ import AVFoundation
 import Cocoa
 import CoreImage
 import CoreMediaIO
+import SwiftUI
 import SystemExtensions
 
 class ViewController: NSViewController {
 
-    private var debugCaption: NSTextField!
-    private var needToStreamCaption: NSTextField!
     private var needToStream: Bool = false
     private var mirrorCamera: Bool = true   // webcam-style mirror
     private var image = NSImage(named: "cham-index")  // legacy fallback
@@ -24,10 +23,8 @@ class ViewController: NSViewController {
     private let frameLock = NSLock()
     private let pianoState = PianoState()
     private let midiInput = MIDIInput()
-    private var cameraPicker: NSPopUpButton!
     private let previewLayer = AVSampleBufferDisplayLayer()
-    private var previewView: NSView!
-    private var midiStatusLabel: NSTextField!
+    private let hostState = HostState()
     private var readyToEnqueue = false
     private var enqueued = false
     private var _videoDescription: CMFormatDescription!
@@ -45,6 +42,7 @@ class ViewController: NSViewController {
             return
         }
         self.activating = true
+        hostState.extensionStatus = .activating
         let activationRequest = OSSystemExtensionRequest.activationRequest(forExtensionWithIdentifier: extensionIdentifier, queue: .main)
         activationRequest.delegate = self
         OSSystemExtensionManager.shared.submitRequest(activationRequest)
@@ -256,30 +254,13 @@ class ViewController: NSViewController {
         connectToCamera()
     }
 
-    private func rebuildCameraMenu() {
-        guard let picker = cameraPicker else { return }
-        picker.removeAllItems()
-        let devices = CameraCapture.availableDevices
-        for d in devices {
-            picker.addItem(withTitle: d.localizedName)
-            picker.lastItem?.representedObject = d
-        }
-        if devices.isEmpty {
-            picker.addItem(withTitle: "No cameras found")
-        }
-    }
-
-    @objc func cameraPicked(_ sender: NSPopUpButton) {
-        guard let device = sender.selectedItem?.representedObject as? AVCaptureDevice else { return }
-        cameraCapture.setDevice(device)
-    }
-
     func registerForDeviceNotifications() {
         NotificationCenter.default.addObserver(forName: NSNotification.Name.AVCaptureDeviceWasConnected, object: nil, queue: nil) { (notif) -> Void in
-            // when the user click "activate", we will receive a notification
-            // we can then try to connect to our "Sample Camera" (if not already connected to)
-            if self.sourceStream == nil {
-                self.connectToCamera()
+            DispatchQueue.main.async {
+                self.hostState.cameras = CameraCapture.availableDevices
+                if self.sourceStream == nil {
+                    self.connectToCamera()
+                }
             }
         }
     }
@@ -288,50 +269,12 @@ class ViewController: NSViewController {
         super.viewDidLoad()
 
         registerForDeviceNotifications()
-        let button = NSButton(title: "activate", target: self, action: #selector(activate(_:)))
-        self.view.addSubview(button)
+        installSwiftUIPanel()
 
-        let button2 = NSButton(title: "deactivate", target: self, action: #selector(deactivate(_:)))
-        self.view.addSubview(button2)
-        button2.frame = CGRect(x: 120, y: 0, width: button2.frame.width, height: button.frame.height)
-
-        let button3 = NSButton(title: "reconnect", target: self, action: #selector(reconnect(_:)))
-        self.view.addSubview(button3)
-        button3.frame = CGRect(x: button2.frame.maxX + 8, y: 0, width: button3.frame.width, height: button.frame.height)
-
-        debugCaption = fakeLabel("")
-        debugCaption.isEditable = false
-        let frame = self.view.frame
-        debugCaption.frame = frame.insetBy(dx: 0, dy: 32)
-        self.view.addSubview(debugCaption)
-
-        needToStreamCaption = fakeLabel("need to stream = ???")
-        needToStreamCaption.frame = needToStreamCaption.frame.offsetBy(dx: button2.frame.maxX + 16, dy: 4)
-        self.view.addSubview(needToStreamCaption)
-
-        cameraPicker = NSPopUpButton(frame: NSRect(x: 0, y: 30, width: 280, height: 24), pullsDown: false)
-        cameraPicker.target = self
-        cameraPicker.action = #selector(cameraPicked(_:))
-        rebuildCameraMenu()
-        self.view.addSubview(cameraPicker)
-
-        midiStatusLabel = fakeLabel("MIDI: …")
-        midiStatusLabel.frame = NSRect(x: cameraPicker.frame.maxX + 12, y: 32,
-                                       width: 380, height: 20)
-        self.view.addSubview(midiStatusLabel)
-
-        // Live preview of the exact composited buffer that's pushed to the
-        // virtual camera, so you can verify look + latency without QuickTime.
-        previewView = NSView(frame: NSRect(x: 0, y: 60,
-                                           width: self.view.bounds.width,
-                                           height: max(120, self.view.bounds.height - 90)))
-        previewView.autoresizingMask = [.width, .height]
-        previewView.wantsLayer = true
-        previewView.layer = CALayer()
-        previewView.layer?.backgroundColor = NSColor.black.cgColor
-        previewLayer.videoGravity = .resizeAspect
-        previewView.layer?.addSublayer(previewLayer)
-        self.view.addSubview(previewView)
+        // Seed initial UI state.
+        hostState.cameras = CameraCapture.availableDevices
+        hostState.selectedCameraID = hostState.cameras.first?.uniqueID
+        hostState.extensionStatus = .inactive
 
         self.makeDevicesVisible()
         connectToCamera()
@@ -348,8 +291,7 @@ class ViewController: NSViewController {
             self?.pianoState.handle(event)
         }
         midiInput.onSourcesChanged = { [weak self] names in
-            let label = names.isEmpty ? "MIDI: no sources" : "MIDI: \(names.joined(separator: ", "))"
-            self?.midiStatusLabel?.stringValue = label
+            self?.hostState.midiSources = names
         }
         midiInput.start()
 
@@ -359,20 +301,27 @@ class ViewController: NSViewController {
         propTimer = Timer.scheduledTimer(timeInterval: 2.0, target: self, selector: #selector(propertyTimer), userInfo: nil, repeats: true)
     }
 
-    func showMessage(_ text: String) {
-        print("showMessage",text)
-        debugCaption.stringValue += "\(text)\n"
+    private func installSwiftUIPanel() {
+        let actions = HostActions(
+            activate: { [weak self] in self?.activateCamera() },
+            deactivate: { [weak self] in self?.deactivateCamera() },
+            reconnect: { [weak self] in self?.reconnect() },
+            cameraSelected: { [weak self] device in self?.cameraCapture.setDevice(device) }
+        )
+        let panel = ControlPanel(state: hostState, actions: actions, previewLayer: previewLayer)
+        let host = NSHostingView(rootView: panel)
+        host.translatesAutoresizingMaskIntoConstraints = false
+        self.view.addSubview(host)
+        NSLayoutConstraint.activate([
+            host.topAnchor.constraint(equalTo: self.view.topAnchor),
+            host.bottomAnchor.constraint(equalTo: self.view.bottomAnchor),
+            host.leadingAnchor.constraint(equalTo: self.view.leadingAnchor),
+            host.trailingAnchor.constraint(equalTo: self.view.trailingAnchor)
+        ])
     }
-    
-    func fakeLabel(_ text: String) -> NSTextField {
-        let label = NSTextField()
-        label.frame = CGRect(origin: .zero, size: CGSize(width: 200, height: 24))
-        label.stringValue = text
-        label.backgroundColor = .clear
-        //label.isBezeled = false
-        label.isEditable = false
-        //label.sizeToFit()
-        return label
+
+    func showMessage(_ text: String) {
+        hostState.log(text)
     }
     func enqueue(_ queue: CMSimpleQueue, _ image: CGImage) {
         guard CMSimpleQueueGetCount(queue) < CMSimpleQueueGetCapacity(queue) else {
@@ -453,13 +402,10 @@ class ViewController: NSViewController {
             self.setJustProperty(streamId: sourceStream, newValue: "random")
             let just = self.getJustProperty(streamId: sourceStream)
             if let just = just {
-                if just == "sc=1" {
-                    needToStream = true
-                } else {
-                    needToStream = false
-                }
+                needToStream = (just == "sc=1")
             }
-            needToStreamCaption.stringValue = "need to stream = \(needToStream)"
+            hostState.streamingToConsumer = needToStream
+            hostState.sinkConnected = (sinkQueue != nil)
         }
     }
     @objc func fireTimer() {
@@ -517,7 +463,9 @@ class ViewController: NSViewController {
         if let sb {
             if previewLayer.requiresFlushToResumeDecoding { previewLayer.flush() }
             previewLayer.enqueue(sb)
-            previewLayer.frame = previewView.bounds
+            if let host = previewLayer.superlayer {
+                previewLayer.frame = host.bounds
+            }
         }
     }
 
@@ -575,40 +523,41 @@ class ViewController: NSViewController {
 
 }
 
-extension ViewController:OSSystemExtensionRequestDelegate
-{
-    func request(_ request: OSSystemExtensionRequest, actionForReplacingExtension existing: OSSystemExtensionProperties,
+extension ViewController: OSSystemExtensionRequestDelegate {
+    func request(_ request: OSSystemExtensionRequest,
+                 actionForReplacingExtension existing: OSSystemExtensionProperties,
                  withExtension ext: OSSystemExtensionProperties) -> OSSystemExtensionRequest.ReplacementAction {
-        showMessage("Replacing extension version \(existing.bundleShortVersion) with \(ext.bundleShortVersion)")
+        showMessage("Replacing \(existing.bundleShortVersion) with \(ext.bundleShortVersion)")
         return .replace
     }
-    
+
     func requestNeedsUserApproval(_ request: OSSystemExtensionRequest) {
-        showMessage("Extension needs user approval")
+        DispatchQueue.main.async {
+            self.hostState.extensionStatus = .needsApproval
+            self.showMessage("Extension needs user approval — System Settings → Privacy & Security")
+        }
     }
 
-    func request(_ request: OSSystemExtensionRequest, didFinishWithResult result: OSSystemExtensionRequest.Result) {
-        showMessage("Request finished with result: \(result.rawValue)")
-        if result == .completed {
-            if self.activating {
-                showMessage("The camera is activated")
-            } else {
-                showMessage("The camera is deactivated")
-            }
-        } else {
-            if self.activating {
-                showMessage("Please reboot to finish activating the Scregle camera")
-            } else {
-                showMessage("Please Reboot to finish deactivating the Scregle camera")
+    func request(_ request: OSSystemExtensionRequest,
+                 didFinishWithResult result: OSSystemExtensionRequest.Result) {
+        DispatchQueue.main.async {
+            switch result {
+            case .completed:
+                self.hostState.extensionStatus = self.activating ? .active : .inactive
+                self.showMessage(self.activating ? "Camera activated" : "Camera deactivated")
+            case .willCompleteAfterReboot:
+                self.hostState.extensionStatus = .needsApproval
+                self.showMessage("Reboot to finish")
+            @unknown default:
+                self.showMessage("Request finished (\(result.rawValue))")
             }
         }
     }
 
     func request(_ request: OSSystemExtensionRequest, didFailWithError error: Error) {
-        if self.activating {
-            showMessage("Failed to activate the camera, run samplecamera from inside /Applications :)")
-        } else {
-            showMessage("Failed to deactivate the camera")
+        DispatchQueue.main.async {
+            self.hostState.extensionStatus = .failed
+            self.showMessage("Failed: \(error.localizedDescription)")
         }
     }
 }
