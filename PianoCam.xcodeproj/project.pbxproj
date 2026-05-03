@@ -14,6 +14,8 @@
 		5D736BF14559E87C97963652 /* CameraCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E46B18EDE87317291CD818 /* CameraCapture.swift */; };
 		6A847E38119D23790E0CA259 /* PianoOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00FB38140ECBDF9C1231CBF6 /* PianoOverlay.swift */; };
 		89F73DA6AA0E84FF5E49D704 /* MIDIInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = A600A846F6B8348B5121964A /* MIDIInput.swift */; };
+		A8634B9A2FA7DD5300177FBA /* onnxruntime in Frameworks */ = {isa = PBXBuildFile; productRef = A8634B992FA7DD5300177FBA /* onnxruntime */; };
+		A8634B9D2FA7DD8300177FBA /* BasicPitch.onnx in Resources */ = {isa = PBXBuildFile; fileRef = A8634B9B2FA7DD8300177FBA /* BasicPitch.onnx */; };
 		E94BAC4EB866570DB1D5F60C /* PianoOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00FB38140ECBDF9C1231CBF6 /* PianoOverlay.swift */; };
 		F990A869286F663F00159819 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F990A868286F663F00159819 /* AppDelegate.swift */; };
 		F990A86B286F663F00159819 /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F990A86A286F663F00159819 /* ViewController.swift */; };
@@ -55,10 +57,11 @@
 		15C3519032B9556B6AD3044E /* ControlPanel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ControlPanel.swift; sourceTree = "<group>"; };
 		80E46B18EDE87317291CD818 /* CameraCapture.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CameraCapture.swift; sourceTree = "<group>"; };
 		A600A846F6B8348B5121964A /* MIDIInput.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MIDIInput.swift; sourceTree = "<group>"; };
+		A8634B9B2FA7DD8300177FBA /* BasicPitch.onnx */ = {isa = PBXFileReference; lastKnownFileType = file; path = BasicPitch.onnx; sourceTree = "<group>"; };
 		D393D4C9DA1AD372D102537C /* AudioPitchDetector.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AudioPitchDetector.swift; sourceTree = "<group>"; };
 		DB15F4627C804220285EE490 /* PianoState.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PianoState.swift; sourceTree = "<group>"; };
 		F137BDA3E7EC8F9B9B3963E0 /* HostState.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HostState.swift; sourceTree = "<group>"; };
-		F990A865286F663F00159819 /* samplecamera.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = samplecamera.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		F990A865286F663F00159819 /* PianoCam.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PianoCam.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F990A868286F663F00159819 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		F990A86A286F663F00159819 /* ViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewController.swift; sourceTree = "<group>"; };
 		F990A86C286F664500159819 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -77,6 +80,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A8634B9A2FA7DD5300177FBA /* onnxruntime in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -93,10 +97,18 @@
 		79198BAED15782D7FC09330F /* Shared */ = {
 			isa = PBXGroup;
 			children = (
+				A8634B9C2FA7DD8300177FBA /* Models */,
 				00FB38140ECBDF9C1231CBF6 /* PianoOverlay.swift */,
 			);
-			name = Shared;
 			path = Shared;
+			sourceTree = "<group>";
+		};
+		A8634B9C2FA7DD8300177FBA /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				A8634B9B2FA7DD8300177FBA /* BasicPitch.onnx */,
+			);
+			path = Models;
 			sourceTree = "<group>";
 		};
 		F990A85C286F663F00159819 = {
@@ -112,7 +124,7 @@
 		F990A866286F663F00159819 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				F990A865286F663F00159819 /* samplecamera.app */,
+				F990A865286F663F00159819 /* PianoCam.app */,
 				F990A87B286F666500159819 /* com.mayank.pianocam.cameraextension.systemextension */,
 			);
 			name = Products;
@@ -167,7 +179,7 @@
 			);
 			name = PianoCam;
 			productName = samplecamera;
-			productReference = F990A865286F663F00159819 /* samplecamera.app */;
+			productReference = F990A865286F663F00159819 /* PianoCam.app */;
 			productType = "com.apple.product-type.application";
 		};
 		F990A87A286F666500159819 /* PianoCamExtension */ = {
@@ -214,6 +226,9 @@
 				Base,
 			);
 			mainGroup = F990A85C286F663F00159819;
+			packageReferences = (
+				A8634B982FA7DD5300177FBA /* XCRemoteSwiftPackageReference "onnxruntime-swift-package-manager" */,
+			);
 			productRefGroup = F990A866286F663F00159819 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -231,6 +246,7 @@
 			files = (
 				F990A86D286F664500159819 /* Assets.xcassets in Resources */,
 				F990A870286F664500159819 /* Main.storyboard in Resources */,
+				A8634B9D2FA7DD8300177FBA /* BasicPitch.onnx in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -417,7 +433,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = 232HCB982K;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Sample Camera";
@@ -447,7 +463,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = 232HCB982K;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Sample Camera";
@@ -473,7 +489,7 @@
 				CODE_SIGN_ENTITLEMENTS = PianoCamExtension/PianoCamExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = 232HCB982K;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = PianoCamExtension/Info.plist;
@@ -500,7 +516,7 @@
 				CODE_SIGN_ENTITLEMENTS = PianoCamExtension/PianoCamExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = 232HCB982K;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = PianoCamExtension/Info.plist;
@@ -552,6 +568,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		A8634B982FA7DD5300177FBA /* XCRemoteSwiftPackageReference "onnxruntime-swift-package-manager" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/microsoft/onnxruntime-swift-package-manager";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.24.2;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A8634B992FA7DD5300177FBA /* onnxruntime */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A8634B982FA7DD5300177FBA /* XCRemoteSwiftPackageReference "onnxruntime-swift-package-manager" */;
+			productName = onnxruntime;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = F990A85D286F663F00159819 /* Project object */;
 }
