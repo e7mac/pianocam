@@ -46,8 +46,10 @@ final class BasicPitchInference {
         var sustainedFraction: Float = 0.25
         var minHoldSeconds: TimeInterval = 0.12
         /// When true, audio chunks classified as speech are dropped before
-        /// reaching the model. Cuts vocal-induced false positives.
-        var rejectSpeech: Bool = true
+        /// reaching the model. Cuts vocal-induced false positives, but the
+        /// existing VAD over-rejects at small live-buffer sizes — leave off
+        /// until VAD is retuned for 22.05 kHz / ~46 ms chunks.
+        var rejectSpeech: Bool = false
     }
 
     /// Live-updatable detection settings — mutated from the main thread,
@@ -178,7 +180,7 @@ final class BasicPitchInference {
                     onsetOutputName = pitchOutputs[0].name
                 }
                 probedOutputs = true
-                NSLog("PianoCam basicpitch: probed — note=\(noteOutputName!), onset=\(onsetOutputName!)")
+                NSLog("PianoCam basicpitch: probed — note=\(noteOutputName!) (mean=\(String(format: "%.3f", m0 >= m1 ? m0 : m1))), onset=\(onsetOutputName!) (mean=\(String(format: "%.3f", m0 >= m1 ? m1 : m0))) shape=\(pitchOutputs[0].arr.shape) strides=\(pitchOutputs[0].arr.strides)")
             }
             guard let nName = noteOutputName, let oName = onsetOutputName,
                   let noteArr = out.featureValue(for: nName)?.multiArrayValue,
@@ -199,6 +201,11 @@ final class BasicPitchInference {
 
         let nPtr = noteArr.dataPointer.bindMemory(to: Float.self, capacity: noteArr.count)
         let oPtr = onsetArr.dataPointer.bindMemory(to: Float.self, capacity: onsetArr.count)
+        // CoreML may not use contiguous strides for ANE-optimized models — read them.
+        let nFrameStride = noteArr.strides[1].intValue
+        let nPitchStride = noteArr.strides[2].intValue
+        let oFrameStride = onsetArr.strides[1].intValue
+        let oPitchStride = onsetArr.strides[2].intValue
 
         let onsetThr = settings.onsetThreshold
         let frameThr = settings.frameThreshold
@@ -218,8 +225,8 @@ final class BasicPitchInference {
             var activeCount = 0
             var maxOnsetInTail: Float = 0
             for f in startFrame..<frameCount {
-                let nVal = nPtr[f * pitchCount + p]
-                let oVal = oPtr[f * pitchCount + p]
+                let nVal = nPtr[f * nFrameStride + p * nPitchStride]
+                let oVal = oPtr[f * oFrameStride + p * oPitchStride]
                 if nVal > frameThr { activeCount += 1 }
                 if oVal > maxOnsetInTail { maxOnsetInTail = oVal }
                 if oVal > diagMaxOnset { diagMaxOnset = oVal }
@@ -229,8 +236,8 @@ final class BasicPitchInference {
                 // previous frame in the same inference window (which is fine
                 // because the model output covers the full 2 s; only emission
                 // is restricted to the tail).
-                let prevVal: Float = (f > 0) ? oPtr[(f - 1) * pitchCount + p] : 0
-                let nextVal: Float = (f + 1 < frameCount) ? oPtr[(f + 1) * pitchCount + p] : 0
+                let prevVal: Float = (f > 0) ? oPtr[(f - 1) * oFrameStride + p * oPitchStride] : 0
+                let nextVal: Float = (f + 1 < frameCount) ? oPtr[(f + 1) * oFrameStride + p * oPitchStride] : 0
                 if oVal > onsetThr, oVal > prevVal, oVal >= nextVal {
                     newOnsets.append((time: f, note: UInt8(21 + p), score: oVal))
                 }
@@ -286,9 +293,7 @@ final class BasicPitchInference {
             noteOnTimes[onset.note] = now
         }
 
-        if Int.random(in: 0..<5) == 0 {
-            NSLog("PianoCam basicpitch: peak note=\(String(format: "%.2f", diagMaxNote)) onset=\(String(format: "%.2f", diagMaxOnset)) audioPeak=\(String(format: "%.3f", audioPeak)) active=\(activeNotes.count) onsets=\(newOnsets.count)")
-        }
+        NSLog("PianoCam basicpitch: peak note=\(String(format: "%.2f", diagMaxNote)) onset=\(String(format: "%.2f", diagMaxOnset)) audioPeak=\(String(format: "%.3f", audioPeak)) active=\(activeNotes.count) newOnsets=\(newOnsets.count)")
         onStatus?("active=\(activeNotes.count)")
     }
 
