@@ -16,7 +16,7 @@
 		F990A86B286F663F00159819 /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F990A86A286F663F00159819 /* ViewController.swift */; };
 		F990A86D286F664500159819 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F990A86C286F664500159819 /* Assets.xcassets */; };
 		F990A870286F664500159819 /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = F990A86E286F664500159819 /* Main.storyboard */; };
-		F990A87E286F666500159819 /* cameraextensionProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = F990A87D286F666500159819 /* cameraextensionProvider.swift */; };
+		F990A87E286F666500159819 /* PianoCamExtensionProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = F990A87D286F666500159819 /* PianoCamExtensionProvider.swift */; };
 		F990A880286F666500159819 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = F990A87F286F666500159819 /* main.swift */; };
 		F990A885286F666500159819 /* com.mayank.pianocam.cameraextension.systemextension in Embed System Extensions */ = {isa = PBXBuildFile; fileRef = F990A87B286F666500159819 /* com.mayank.pianocam.cameraextension.systemextension */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		F990A88B287047FE00159819 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = F990A88A287047FE00159819 /* Config.swift */; };
@@ -57,12 +57,12 @@
 		F990A86A286F663F00159819 /* ViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewController.swift; sourceTree = "<group>"; };
 		F990A86C286F664500159819 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		F990A86F286F664500159819 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
-		F990A871286F664500159819 /* samplecamera.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = samplecamera.entitlements; sourceTree = "<group>"; };
+		F990A871286F664500159819 /* PianoCam.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PianoCam.entitlements; sourceTree = "<group>"; };
 		F990A87B286F666500159819 /* com.mayank.pianocam.cameraextension.systemextension */ = {isa = PBXFileReference; explicitFileType = "wrapper.system-extension"; includeInIndex = 0; path = com.mayank.pianocam.cameraextension.systemextension; sourceTree = BUILT_PRODUCTS_DIR; };
-		F990A87D286F666500159819 /* cameraextensionProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cameraextensionProvider.swift; sourceTree = "<group>"; };
+		F990A87D286F666500159819 /* PianoCamExtensionProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PianoCamExtensionProvider.swift; sourceTree = "<group>"; };
 		F990A87F286F666500159819 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		F990A881286F666500159819 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		F990A882286F666500159819 /* cameraextension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = cameraextension.entitlements; sourceTree = "<group>"; };
+		F990A882286F666500159819 /* PianoCamExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PianoCamExtension.entitlements; sourceTree = "<group>"; };
 		F990A88A287047FE00159819 /* Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Config.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -96,8 +96,8 @@
 		F990A85C286F663F00159819 = {
 			isa = PBXGroup;
 			children = (
-				F990A867286F663F00159819 /* samplecamera */,
-				F990A87C286F666500159819 /* cameraextension */,
+				F990A867286F663F00159819 /* PianoCam */,
+				F990A87C286F666500159819 /* PianoCamExtension */,
 				F990A866286F663F00159819 /* Products */,
 				79198BAED15782D7FC09330F /* Shared */,
 			);
@@ -112,39 +112,39 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
-		F990A867286F663F00159819 /* samplecamera */ = {
+		F990A867286F663F00159819 /* PianoCam */ = {
 			isa = PBXGroup;
 			children = (
 				F990A868286F663F00159819 /* AppDelegate.swift */,
 				F990A86A286F663F00159819 /* ViewController.swift */,
 				F990A86C286F664500159819 /* Assets.xcassets */,
 				F990A86E286F664500159819 /* Main.storyboard */,
-				F990A871286F664500159819 /* samplecamera.entitlements */,
+				F990A871286F664500159819 /* PianoCam.entitlements */,
 				80E46B18EDE87317291CD818 /* CameraCapture.swift */,
 				DB15F4627C804220285EE490 /* PianoState.swift */,
 				A600A846F6B8348B5121964A /* MIDIInput.swift */,
 			);
-			path = samplecamera;
+			path = PianoCam;
 			sourceTree = "<group>";
 		};
-		F990A87C286F666500159819 /* cameraextension */ = {
+		F990A87C286F666500159819 /* PianoCamExtension */ = {
 			isa = PBXGroup;
 			children = (
-				F990A87D286F666500159819 /* cameraextensionProvider.swift */,
+				F990A87D286F666500159819 /* PianoCamExtensionProvider.swift */,
 				F990A88A287047FE00159819 /* Config.swift */,
 				F990A87F286F666500159819 /* main.swift */,
 				F990A881286F666500159819 /* Info.plist */,
-				F990A882286F666500159819 /* cameraextension.entitlements */,
+				F990A882286F666500159819 /* PianoCamExtension.entitlements */,
 			);
-			path = cameraextension;
+			path = PianoCamExtension;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		F990A864286F663F00159819 /* samplecamera */ = {
+		F990A864286F663F00159819 /* PianoCam */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = F990A874286F664500159819 /* Build configuration list for PBXNativeTarget "samplecamera" */;
+			buildConfigurationList = F990A874286F664500159819 /* Build configuration list for PBXNativeTarget "PianoCam" */;
 			buildPhases = (
 				F990A861286F663F00159819 /* Sources */,
 				F990A862286F663F00159819 /* Frameworks */,
@@ -156,14 +156,14 @@
 			dependencies = (
 				F990A884286F666500159819 /* PBXTargetDependency */,
 			);
-			name = samplecamera;
+			name = PianoCam;
 			productName = samplecamera;
 			productReference = F990A865286F663F00159819 /* samplecamera.app */;
 			productType = "com.apple.product-type.application";
 		};
-		F990A87A286F666500159819 /* cameraextension */ = {
+		F990A87A286F666500159819 /* PianoCamExtension */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = F990A886286F666500159819 /* Build configuration list for PBXNativeTarget "cameraextension" */;
+			buildConfigurationList = F990A886286F666500159819 /* Build configuration list for PBXNativeTarget "PianoCamExtension" */;
 			buildPhases = (
 				F990A877286F666500159819 /* Sources */,
 				F990A878286F666500159819 /* Frameworks */,
@@ -173,7 +173,7 @@
 			);
 			dependencies = (
 			);
-			name = cameraextension;
+			name = PianoCamExtension;
 			productName = cameraextension;
 			productReference = F990A87B286F666500159819 /* com.mayank.pianocam.cameraextension.systemextension */;
 			productType = "com.apple.product-type.system-extension";
@@ -209,8 +209,8 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				F990A864286F663F00159819 /* samplecamera */,
-				F990A87A286F666500159819 /* cameraextension */,
+				F990A864286F663F00159819 /* PianoCam */,
+				F990A87A286F666500159819 /* PianoCamExtension */,
 			);
 		};
 /* End PBXProject section */
@@ -254,7 +254,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F990A880286F666500159819 /* main.swift in Sources */,
-				F990A87E286F666500159819 /* cameraextensionProvider.swift in Sources */,
+				F990A87E286F666500159819 /* PianoCamExtensionProvider.swift in Sources */,
 				F990A88C287047FE00159819 /* Config.swift in Sources */,
 				E94BAC4EB866570DB1D5F60C /* PianoOverlay.swift in Sources */,
 			);
@@ -265,7 +265,7 @@
 /* Begin PBXTargetDependency section */
 		F990A884286F666500159819 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = F990A87A286F666500159819 /* cameraextension */;
+			target = F990A87A286F666500159819 /* PianoCamExtension */;
 			targetProxy = F990A883286F666500159819 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
@@ -401,7 +401,7 @@
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = samplecamera/samplecamera.entitlements;
+				CODE_SIGN_ENTITLEMENTS = PianoCam/PianoCam.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -430,7 +430,7 @@
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = samplecamera/samplecamera.entitlements;
+				CODE_SIGN_ENTITLEMENTS = PianoCam/PianoCam.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -456,13 +456,13 @@
 		F990A887286F666500159819 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				CODE_SIGN_ENTITLEMENTS = cameraextension/cameraextension.entitlements;
+				CODE_SIGN_ENTITLEMENTS = PianoCamExtension/PianoCamExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = cameraextension/Info.plist;
+				INFOPLIST_FILE = PianoCamExtension/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = cameraextension;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -483,13 +483,13 @@
 		F990A888286F666500159819 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				CODE_SIGN_ENTITLEMENTS = cameraextension/cameraextension.entitlements;
+				CODE_SIGN_ENTITLEMENTS = PianoCamExtension/PianoCamExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = cameraextension/Info.plist;
+				INFOPLIST_FILE = PianoCamExtension/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = cameraextension;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -519,7 +519,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		F990A874286F664500159819 /* Build configuration list for PBXNativeTarget "samplecamera" */ = {
+		F990A874286F664500159819 /* Build configuration list for PBXNativeTarget "PianoCam" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				F990A875286F664500159819 /* Debug */,
@@ -528,7 +528,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		F990A886286F666500159819 /* Build configuration list for PBXNativeTarget "cameraextension" */ = {
+		F990A886286F666500159819 /* Build configuration list for PBXNativeTarget "PianoCamExtension" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				F990A887286F666500159819 /* Debug */,
