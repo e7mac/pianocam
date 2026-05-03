@@ -109,6 +109,10 @@ struct ControlPanel: View {
 
             Spacer()
 
+            Toggle("Mirror", isOn: $state.mirrorCamera)
+                .toggleStyle(.switch)
+                .controlSize(.small)
+
             VStack(alignment: .trailing, spacing: 4) {
                 badge("Sink", on: state.sinkConnected)
                 badge("Streaming", on: state.streamingToConsumer)

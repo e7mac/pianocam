@@ -15,7 +15,7 @@ import SystemExtensions
 class ViewController: NSViewController {
 
     private var needToStream: Bool = false
-    private var mirrorCamera: Bool = true   // webcam-style mirror
+    private var mirrorCamera: Bool { hostState.mirrorCamera }
     private var image = NSImage(named: "cham-index")  // legacy fallback
     private var activating: Bool = false
     private let cameraCapture = CameraCapture()

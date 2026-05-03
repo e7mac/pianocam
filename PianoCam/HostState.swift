@@ -32,6 +32,8 @@ final class HostState: ObservableObject {
     @Published var sinkConnected: Bool = false
     @Published var streamingToConsumer: Bool = false
 
+    @Published var mirrorCamera: Bool = false
+
     /// Append a line to the rolling debug log.
     func log(_ line: String) {
         statusMessage = line
