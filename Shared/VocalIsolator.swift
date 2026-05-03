@@ -37,8 +37,17 @@ final class VocalIsolator {
     private let outputName: String
 
     private let window: [Float]     // Hann window, length n_fft
-    private let log2N: vDSP_Length
-    private let fftSetup: FFTSetup
+    /// Forward and inverse DFT setups. We use the complex-DFT API (vDSP_DFT_zop)
+    /// because n_fft = 6144 isn't a power of two — it's 2^11 · 3, supported by
+    /// the prime-factor DFT but not by `vDSP_fft_zrip`.
+    private let fwdDFT: vDSP_DFT_Setup
+    private let invDFT: vDSP_DFT_Setup
+    /// Reused zero buffer for the imag input to forward DFTs (real signal).
+    private let zeroBuf: [Float]
+    /// Periodic Hann window divided by sum-of-squares for synthesis-side
+    /// normalization. Pre-computed since both window and squared window are
+    /// invariant.
+    private let synthesisWindowSqr: [Float]
 
     /// CoreML compile + load. Reads `VocalIsolator.mlmodelc` (or .mlpackage) from the bundle.
     init() throws {
@@ -69,23 +78,33 @@ final class VocalIsolator {
         self.genSize = chunkSize - 2 * trim
         self.nBins = nFFT / 2 + 1
 
-        // Periodic Hann window — same convention as torch.hann_window(periodic=True).
-        // Apple's vDSP_hann_window with vDSP_HANN_NORM is periodic; the unnormalized
-        // form has cosine endpoints. We need the periodic form to match the model.
+        // Periodic Hann window: w[n] = 0.5 * (1 - cos(2π·n / N)). This matches
+        // torch.hann_window(periodic=True), which is what the model was trained
+        // with via librosa/torch's STFT.
         var w = [Float](repeating: 0, count: nFFT)
-        vDSP_hann_window(&w, vDSP_Length(nFFT), Int32(vDSP_HANN_DENORM))
+        for n in 0..<nFFT {
+            w[n] = 0.5 * (1 - cos(2 * .pi * Float(n) / Float(nFFT)))
+        }
         self.window = w
+        var sqr = [Float](repeating: 0, count: nFFT)
+        for i in 0..<nFFT { sqr[i] = w[i] * w[i] }
+        self.synthesisWindowSqr = sqr
 
-        self.log2N = vDSP_Length(log2(Double(nFFT)).rounded())
-        guard let setup = vDSP_create_fftsetup(log2N, FFTRadix(kFFTRadix2)) else {
+        guard let fwd = vDSP_DFT_zop_CreateSetup(nil, vDSP_Length(nFFT), .FORWARD),
+              let inv = vDSP_DFT_zop_CreateSetup(nil, vDSP_Length(nFFT), .INVERSE) else {
             throw NSError(domain: "PianoCam", code: 12, userInfo: [
-                NSLocalizedDescriptionKey: "FFT setup failed"
+                NSLocalizedDescriptionKey: "DFT setup failed for n_fft=\(nFFT)"
             ])
         }
-        self.fftSetup = setup
+        self.fwdDFT = fwd
+        self.invDFT = inv
+        self.zeroBuf = [Float](repeating: 0, count: nFFT)
     }
 
-    deinit { vDSP_destroy_fftsetup(fftSetup) }
+    deinit {
+        vDSP_DFT_DestroySetup(fwdDFT)
+        vDSP_DFT_DestroySetup(invDFT)
+    }
 
     /// Run the input mono audio through the vocal isolator. Returns the
     /// instrumental stem at 44.1 kHz mono. `progress` is called from 0…1 as
@@ -200,18 +219,17 @@ final class VocalIsolator {
     /// laid out row-major as `[bin * n_frames + frame]`. Uses Hann window,
     /// `center=True` (symmetric reflect-pad of n_fft/2), hop = `hopLength`.
     private func stft(_ input: [Float]) -> (real: [Float], imag: [Float]) {
-        // center=True padding via reflection at both ends.
-        var padded = [Float](repeating: 0, count: input.count + 2 * trim)
-        // Reflect-pad start: input[trim], input[trim-1], ..., input[1]
+        // center=True padding via reflection at both ends. Reflection axis is
+        // the boundary sample (boundary itself NOT duplicated) — same as
+        // torch's mode='reflect'.
+        let n = input.count
+        var padded = [Float](repeating: 0, count: n + 2 * trim)
         for i in 0..<trim { padded[i] = input[trim - i] }
-        // Copy input
         padded.withUnsafeMutableBufferPointer { dst in
             input.withUnsafeBufferPointer { src in
-                dst.baseAddress!.advanced(by: trim).update(from: src.baseAddress!, count: input.count)
+                dst.baseAddress!.advanced(by: trim).update(from: src.baseAddress!, count: n)
             }
         }
-        // Reflect-pad end
-        let n = input.count
         for i in 0..<trim { padded[trim + n + i] = input[n - 2 - i] }
 
         let nFrames = segmentSize
@@ -219,8 +237,8 @@ final class VocalIsolator {
         var imag = [Float](repeating: 0, count: nBins * nFrames)
 
         var windowed = [Float](repeating: 0, count: nFFT)
-        var realPart = [Float](repeating: 0, count: nFFT / 2)
-        var imagPart = [Float](repeating: 0, count: nFFT / 2)
+        var outReal = [Float](repeating: 0, count: nFFT)
+        var outImag = [Float](repeating: 0, count: nFFT)
 
         for f in 0..<nFrames {
             let off = f * hopLength
@@ -234,28 +252,23 @@ final class VocalIsolator {
                 }
             }
 
-            // Real → split-complex (interleaved layout reinterpretation).
-            realPart.withUnsafeMutableBufferPointer { rp in
-                imagPart.withUnsafeMutableBufferPointer { ip in
-                    var split = DSPSplitComplex(realp: rp.baseAddress!, imagp: ip.baseAddress!)
-                    windowed.withUnsafeBufferPointer { src in
-                        src.baseAddress!.withMemoryRebound(to: DSPComplex.self, capacity: nFFT / 2) { dsp in
-                            vDSP_ctoz(dsp, 2, &split, 1, vDSP_Length(nFFT / 2))
+            // Forward complex DFT. Real input means imag = 0 (zeroBuf).
+            windowed.withUnsafeBufferPointer { wIn in
+                zeroBuf.withUnsafeBufferPointer { zIn in
+                    outReal.withUnsafeMutableBufferPointer { rOut in
+                        outImag.withUnsafeMutableBufferPointer { iOut in
+                            vDSP_DFT_Execute(fwdDFT,
+                                             wIn.baseAddress!, zIn.baseAddress!,
+                                             rOut.baseAddress!, iOut.baseAddress!)
                         }
                     }
-                    vDSP_fft_zrip(fftSetup, &split, 1, log2N, FFTDirection(FFT_FORWARD))
-
-                    // vDSP packs DC in realp[0], Nyquist in imagp[0]. Bins 1..N/2-1
-                    // are (realp[i], imagp[i]). Scale by 0.5 to undo vDSP's 2x.
-                    real[0 * nFrames + f] = rp[0] * 0.5
-                    imag[0 * nFrames + f] = 0
-                    real[(nBins - 1) * nFrames + f] = ip[0] * 0.5
-                    imag[(nBins - 1) * nFrames + f] = 0
-                    for b in 1..<(nFFT / 2) {
-                        real[b * nFrames + f] = rp[b] * 0.5
-                        imag[b * nFrames + f] = ip[b] * 0.5
-                    }
                 }
+            }
+            // Take the first n_fft/2+1 unique bins. (For real input, the
+            // remaining bins are conjugate-symmetric.)
+            for b in 0..<nBins {
+                real[b * nFrames + f] = outReal[b]
+                imag[b * nFrames + f] = outImag[b]
             }
         }
         return (real, imag)
@@ -265,55 +278,57 @@ final class VocalIsolator {
     /// hop = `hopLength`, center=True. Returns `chunkSize` samples.
     private func istft(real: [Float], imag: [Float]) -> [Float] {
         let nFrames = segmentSize
-        // Output buffer: `chunkSize` samples after trimming center-pad.
         let paddedLen = chunkSize + 2 * trim
         var output = [Float](repeating: 0, count: paddedLen)
         var windowSumSq = [Float](repeating: 0, count: paddedLen)
 
-        var realPart = [Float](repeating: 0, count: nFFT / 2)
-        var imagPart = [Float](repeating: 0, count: nFFT / 2)
-        var time = [Float](repeating: 0, count: nFFT)
+        var inReal = [Float](repeating: 0, count: nFFT)
+        var inImag = [Float](repeating: 0, count: nFFT)
+        var outReal = [Float](repeating: 0, count: nFFT)
+        var outImag = [Float](repeating: 0, count: nFFT)
         let scale: Float = 1.0 / Float(nFFT)
 
         for f in 0..<nFrames {
-            // Repack bins to vDSP's split layout.
-            realPart[0] = real[0 * nFrames + f] * 2     // undo our 0.5
-            imagPart[0] = real[(nBins - 1) * nFrames + f] * 2  // Nyquist into imagp[0]
-            for b in 1..<(nFFT / 2) {
-                realPart[b] = real[b * nFrames + f] * 2
-                imagPart[b] = imag[b * nFrames + f] * 2
+            // Reconstruct the full N-point complex spectrum from the half:
+            // bins 0..nBins-1 we have directly; bins nFFT-k = conj(bin k).
+            for b in 0..<nBins {
+                inReal[b] = real[b * nFrames + f]
+                inImag[b] = imag[b * nFrames + f]
             }
-
-            realPart.withUnsafeMutableBufferPointer { rp in
-                imagPart.withUnsafeMutableBufferPointer { ip in
-                    var split = DSPSplitComplex(realp: rp.baseAddress!, imagp: ip.baseAddress!)
-                    vDSP_fft_zrip(fftSetup, &split, 1, log2N, FFTDirection(FFT_INVERSE))
-                    // Convert split → real interleaved.
-                    time.withUnsafeMutableBufferPointer { tp in
-                        tp.baseAddress!.withMemoryRebound(to: DSPComplex.self, capacity: nFFT / 2) { dsp in
-                            vDSP_ztoc(&split, 1, dsp, 2, vDSP_Length(nFFT / 2))
+            for k in 1..<(nFFT / 2) {
+                inReal[nFFT - k] = inReal[k]
+                inImag[nFFT - k] = -inImag[k]
+            }
+            // Inverse complex DFT.
+            inReal.withUnsafeBufferPointer { rIn in
+                inImag.withUnsafeBufferPointer { iIn in
+                    outReal.withUnsafeMutableBufferPointer { rOut in
+                        outImag.withUnsafeMutableBufferPointer { iOut in
+                            vDSP_DFT_Execute(invDFT,
+                                             rIn.baseAddress!, iIn.baseAddress!,
+                                             rOut.baseAddress!, iOut.baseAddress!)
                         }
-                    }
-                    // Apply window (synthesis) and overlap-add into output.
-                    vDSP_vsmul(time, 1, [scale], &time, 1, vDSP_Length(nFFT))
-                    let off = f * hopLength
-                    for i in 0..<nFFT {
-                        output[off + i] += time[i] * window[i]
-                        windowSumSq[off + i] += window[i] * window[i]
                     }
                 }
             }
+            // Inverse DFT in vDSP isn't normalized; divide by N. Imag part
+            // should be ~0 for a real signal — discard it.
+            vDSP_vsmul(outReal, 1, [scale], &outReal, 1, vDSP_Length(nFFT))
+
+            // Apply synthesis window + overlap-add.
+            let off = f * hopLength
+            for i in 0..<nFFT {
+                output[off + i] += outReal[i] * window[i]
+                windowSumSq[off + i] += synthesisWindowSqr[i]
+            }
         }
 
-        // Normalize by overlapping-window sum-of-squares to invert the
-        // analysis window (synthesis-window choice = same Hann gives perfect
-        // reconstruction at this hop / window combination, modulo edges).
+        // Normalize by overlapping-window sum-of-squares — inverts the
+        // analysis-window weighting accumulated by overlap-add.
         let eps: Float = 1e-8
         for i in 0..<paddedLen {
             output[i] /= max(windowSumSq[i], eps)
         }
-
-        // Crop center-pad off both ends.
         return Array(output[trim..<trim + chunkSize])
     }
 
