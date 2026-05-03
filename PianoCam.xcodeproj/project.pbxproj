@@ -15,11 +15,11 @@
 		62424219D7F19D8517DBFC70 /* CameraSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 210ECFA4FD42DEB439333E41 /* CameraSession.swift */; };
 		71FE1B91356EEC428790B5B6 /* FrameCompositor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 877199C972EB5EB8E44140B5 /* FrameCompositor.swift */; };
 		7F1A839EFBE558B2AEEAB5E2 /* CameraPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA7C3418E9E9EDA572E78E03 /* CameraPreviewView.swift */; };
-		835FE1274CE6FF8AAD72CBEE /* PianoCamExtension.systemextension in Embed Dependencies */ = {isa = PBXBuildFile; fileRef = 91F283F8CC9B6DFB3F8B57C5 /* PianoCamExtension.systemextension */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		8A8131650DB412C37540F06F /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7BBD2AA6A78B0285E06A783 /* SettingsView.swift */; };
 		8C487D8464E0D581589B913A /* PianoState.swift in Sources */ = {isa = PBXBuildFile; fileRef = E281BF25986DAC511FD9B452 /* PianoState.swift */; };
 		9AD474AECD9DFCC5AC805EC3 /* PianoCamExtensionDevice.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE9E8A983238E08CDFF12EA0 /* PianoCamExtensionDevice.swift */; };
 		B9E6F7D75522FA9505F1C12C /* ExtensionInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C27759B6F7FBFEC8DBE9041 /* ExtensionInstaller.swift */; };
+		BCA5873FABB11995FE7A9DDB /* PianoCamExtension.systemextension in Embed System Extensions */ = {isa = PBXBuildFile; fileRef = 91F283F8CC9B6DFB3F8B57C5 /* PianoCamExtension.systemextension */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		C1EDD24CD7A7DB20429F01FC /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82AFD1A3FB83F63ECF2DC2B9 /* main.swift */; };
 		E3D329F17A8B91943A8C1565 /* App.swift in Sources */ = {isa = PBXBuildFile; fileRef = 168E4C590A034EF2DD279CB6 /* App.swift */; };
 		E83ABAC17A670E2D501FFCA8 /* PianoKeyboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 832B7B559E425FC6B45F9FCF /* PianoKeyboardView.swift */; };
@@ -37,15 +37,15 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
-		30BC386A4A0B44340F5F1573 /* Embed Dependencies */ = {
+		2E5DF1D992E435220F1AAAD9 /* Embed System Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
-			dstPath = Contents/Library/SystemExtensions;
-			dstSubfolderSpec = 1;
+			dstPath = "$(SYSTEM_EXTENSIONS_FOLDER_PATH)";
+			dstSubfolderSpec = 16;
 			files = (
-				835FE1274CE6FF8AAD72CBEE /* PianoCamExtension.systemextension in Embed Dependencies */,
+				BCA5873FABB11995FE7A9DDB /* PianoCamExtension.systemextension in Embed System Extensions */,
 			);
-			name = "Embed Dependencies";
+			name = "Embed System Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
@@ -201,7 +201,7 @@
 			buildConfigurationList = D8130FB490626D67BE20855C /* Build configuration list for PBXNativeTarget "PianoCam" */;
 			buildPhases = (
 				CE6B73B402421B7F972FA66A /* Sources */,
-				30BC386A4A0B44340F5F1573 /* Embed Dependencies */,
+				2E5DF1D992E435220F1AAAD9 /* Embed System Extensions */,
 			);
 			buildRules = (
 			);

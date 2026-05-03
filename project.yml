@@ -26,9 +26,6 @@ targets:
       - target: PianoCamExtension
         embed: true
         codeSign: true
-        copy:
-          destination: wrapper
-          subpath: Contents/Library/SystemExtensions
     entitlements:
       path: PianoCam/PianoCam.entitlements
       properties:
