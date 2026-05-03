@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		029C0106ACAA060FC1FDAD13 /* AudioPitchDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = D393D4C9DA1AD372D102537C /* AudioPitchDetector.swift */; };
 		2E7C6AA86994FE88AEBF224B /* HostState.swift in Sources */ = {isa = PBXBuildFile; fileRef = F137BDA3E7EC8F9B9B3963E0 /* HostState.swift */; };
 		426E1CCB277DF3FED07FBE52 /* ControlPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15C3519032B9556B6AD3044E /* ControlPanel.swift */; };
 		50E364166E92D49155FDB2B5 /* PianoState.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB15F4627C804220285EE490 /* PianoState.swift */; };
@@ -54,6 +55,7 @@
 		15C3519032B9556B6AD3044E /* ControlPanel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ControlPanel.swift; sourceTree = "<group>"; };
 		80E46B18EDE87317291CD818 /* CameraCapture.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CameraCapture.swift; sourceTree = "<group>"; };
 		A600A846F6B8348B5121964A /* MIDIInput.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MIDIInput.swift; sourceTree = "<group>"; };
+		D393D4C9DA1AD372D102537C /* AudioPitchDetector.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AudioPitchDetector.swift; sourceTree = "<group>"; };
 		DB15F4627C804220285EE490 /* PianoState.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PianoState.swift; sourceTree = "<group>"; };
 		F137BDA3E7EC8F9B9B3963E0 /* HostState.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HostState.swift; sourceTree = "<group>"; };
 		F990A865286F663F00159819 /* samplecamera.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = samplecamera.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -129,6 +131,7 @@
 				A600A846F6B8348B5121964A /* MIDIInput.swift */,
 				F137BDA3E7EC8F9B9B3963E0 /* HostState.swift */,
 				15C3519032B9556B6AD3044E /* ControlPanel.swift */,
+				D393D4C9DA1AD372D102537C /* AudioPitchDetector.swift */,
 			);
 			path = PianoCam;
 			sourceTree = "<group>";
@@ -254,6 +257,7 @@
 				89F73DA6AA0E84FF5E49D704 /* MIDIInput.swift in Sources */,
 				2E7C6AA86994FE88AEBF224B /* HostState.swift in Sources */,
 				426E1CCB277DF3FED07FBE52 /* ControlPanel.swift in Sources */,
+				029C0106ACAA060FC1FDAD13 /* AudioPitchDetector.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -419,6 +423,7 @@
 				INFOPLIST_KEY_NSCameraUsageDescription = "Sample Camera";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSMainStoryboardFile = Main;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "PianoCam listens to your acoustic piano so it can light up the keys you play.";
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -448,6 +453,7 @@
 				INFOPLIST_KEY_NSCameraUsageDescription = "Sample Camera";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSMainStoryboardFile = Main;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "PianoCam listens to your acoustic piano so it can light up the keys you play.";
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

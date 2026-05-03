@@ -107,6 +107,25 @@ struct ControlPanel: View {
                     .truncationMode(.tail)
             }
 
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text("AUDIO")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                    Text(state.audioStatus)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                }
+                HStack(spacing: 8) {
+                    Toggle("", isOn: audioBinding)
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .labelsHidden()
+                    AudioMeter(level: state.audioLevel)
+                        .frame(width: 80, height: 8)
+                }
+            }
+
             Spacer()
 
             Toggle("Mirror", isOn: $state.mirrorCamera)
@@ -143,6 +162,31 @@ struct ControlPanel: View {
                 }
             }
         )
+    }
+
+    private var audioBinding: Binding<Bool> {
+        Binding(
+            get: { state.audioEnabled },
+            set: { actions.audioToggled($0) }
+        )
+    }
+}
+
+private struct AudioMeter: View {
+    let level: Float
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(Color.gray.opacity(0.2))
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(LinearGradient(
+                        colors: [.green, .yellow, .red],
+                        startPoint: .leading, endPoint: .trailing))
+                    .frame(width: max(0, min(geo.size.width, geo.size.width * CGFloat(level))))
+            }
+        }
     }
 }
 

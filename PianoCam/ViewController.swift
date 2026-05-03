@@ -7,6 +7,7 @@
 
 import AVFoundation
 import Cocoa
+import Combine
 import CoreImage
 import CoreMediaIO
 import SwiftUI
@@ -25,6 +26,7 @@ class ViewController: NSViewController {
     private let midiInput = MIDIInput()
     private let previewLayer = AVSampleBufferDisplayLayer()
     private let hostState = HostState()
+    private let audioDetector = AudioPitchDetector()
     private var readyToEnqueue = false
     private var enqueued = false
     private var _videoDescription: CMFormatDescription!
@@ -254,6 +256,44 @@ class ViewController: NSViewController {
         connectToCamera()
     }
 
+    private var audioObservers: [AnyCancellable] = []
+
+    private func toggleAudio(_ on: Bool) {
+        if on {
+            audioDetector.onEvent = { [weak self] event in
+                DispatchQueue.main.async {
+                    self?.pianoState.handle(event)
+                }
+            }
+            audioDetector.start()
+            hostState.audioEnabled = true
+            audioObservers = [
+                audioDetector.$state.receive(on: DispatchQueue.main).sink { [weak self] s in
+                    self?.hostState.audioStatus = Self.audioStatusText(for: s)
+                },
+                audioDetector.$inputLevel.receive(on: DispatchQueue.main).sink { [weak self] l in
+                    self?.hostState.audioLevel = l
+                }
+            ]
+        } else {
+            audioDetector.stop()
+            audioDetector.onEvent = nil
+            audioObservers.removeAll()
+            hostState.audioEnabled = false
+            hostState.audioLevel = 0
+            hostState.audioStatus = "Off"
+        }
+    }
+
+    private static func audioStatusText(for state: AudioPitchDetector.State) -> String {
+        switch state {
+        case .idle: return "Off"
+        case .running: return "Listening"
+        case .unauthorized: return "Mic permission denied"
+        case .failed(let m): return "Failed: \(m)"
+        }
+    }
+
     func registerForDeviceNotifications() {
         NotificationCenter.default.addObserver(forName: NSNotification.Name.AVCaptureDeviceWasConnected, object: nil, queue: nil) { (notif) -> Void in
             DispatchQueue.main.async {
@@ -306,7 +346,8 @@ class ViewController: NSViewController {
             activate: { [weak self] in self?.activateCamera() },
             deactivate: { [weak self] in self?.deactivateCamera() },
             reconnect: { [weak self] in self?.reconnect() },
-            cameraSelected: { [weak self] device in self?.cameraCapture.setDevice(device) }
+            cameraSelected: { [weak self] device in self?.cameraCapture.setDevice(device) },
+            audioToggled: { [weak self] on in self?.toggleAudio(on) }
         )
         let panel = ControlPanel(state: hostState, actions: actions, previewLayer: previewLayer)
         let host = NSHostingView(rootView: panel)
