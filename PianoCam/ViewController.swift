@@ -489,25 +489,38 @@ class ViewController: NSViewController {
         ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
         ctx.fill(dst)
 
-        // Aspect-fill draw of the webcam frame.
+        // Camera occupies the top portion; piano sits in the bottom band.
+        // Drawing the camera into a constrained region (instead of the full
+        // frame) means the piano no longer covers part of the camera image.
+        let pianoFraction: CGFloat = 0.30
+        let camRegion = CGRect(x: 0, y: CGFloat(h) * pianoFraction,
+                               width: CGFloat(w),
+                               height: CGFloat(h) * (1 - pianoFraction))
+
         let cam = CIImage(cvPixelBuffer: frame)
         let camW = cam.extent.width, camH = cam.extent.height
-        let scale = max(CGFloat(w) / camW, CGFloat(h) / camH)
+        let scale = max(camRegion.width / camW, camRegion.height / camH)
         let scaledW = camW * scale, scaledH = camH * scale
-        let dx = (CGFloat(w) - scaledW) / 2
-        let dy = (CGFloat(h) - scaledH) / 2
+        let drawRect = CGRect(
+            x: camRegion.minX + (camRegion.width - scaledW) / 2,
+            y: camRegion.minY + (camRegion.height - scaledH) / 2,
+            width: scaledW,
+            height: scaledH
+        )
         if let cg = ViewController.ciContext.createCGImage(cam, from: cam.extent) {
             ctx.saveGState()
+            ctx.clip(to: camRegion)
             if mirrorCamera {
-                ctx.translateBy(x: CGFloat(w), y: 0)
+                ctx.translateBy(x: 2 * camRegion.midX, y: 0)
                 ctx.scaleBy(x: -1, y: 1)
             }
-            ctx.draw(cg, in: CGRect(x: dx, y: dy, width: scaledW, height: scaledH))
+            ctx.draw(cg, in: drawRect)
             ctx.restoreGState()
         }
 
-        // Piano keyboard along the bottom 25% with live MIDI highlights.
+        // Piano + pedals along the bottom band.
         PianoOverlay.draw(into: ctx, rect: dst,
+                          heightFraction: pianoFraction,
                           activeNotes: pianoState.activeVelocities,
                           pedals: pianoState.pedalsState)
 
