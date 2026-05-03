@@ -85,6 +85,7 @@ final class AudioPitchDetector: NSObject, ObservableObject {
                     self.state = .unauthorized
                     return
                 }
+                self.ensureBasicPitchIfNeeded()
                 self.configure(device: device)
             }
         }
@@ -98,20 +99,26 @@ final class AudioPitchDetector: NSObject, ObservableObject {
             currentNote = nil
         }
         basicPitch?.reset()
+        ensureBasicPitchIfNeeded()
+    }
 
-        if mode == .basicPitch && basicPitch == nil {
-            do {
-                let bp = try BasicPitchInference()
-                bp.settings = basicPitchSettings
-                bp.onEvent = { [weak self] event in
-                    DispatchQueue.main.async { self?.onEvent?(event) }
-                }
-                basicPitch = bp
-            } catch {
-                NSLog("PianoCam: Basic Pitch unavailable — \(error.localizedDescription)")
-                state = .failed("Basic Pitch unavailable: \(error.localizedDescription)")
-                mode = .yin
+    /// Lazily build the `BasicPitchInference` when the current mode is BP and
+    /// we don't have one yet. Called from both mode-changes and from `start()`,
+    /// so the instance exists even if `mode` is set to its default at init
+    /// (which doesn't trigger `didSet`).
+    private func ensureBasicPitchIfNeeded() {
+        guard mode == .basicPitch, basicPitch == nil else { return }
+        do {
+            let bp = try BasicPitchInference()
+            bp.settings = basicPitchSettings
+            bp.onEvent = { [weak self] event in
+                DispatchQueue.main.async { self?.onEvent?(event) }
             }
+            basicPitch = bp
+        } catch {
+            NSLog("PianoCam: Basic Pitch unavailable — \(error.localizedDescription)")
+            state = .failed("Basic Pitch unavailable: \(error.localizedDescription)")
+            mode = .yin
         }
     }
 
