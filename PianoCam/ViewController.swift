@@ -509,7 +509,7 @@ class ViewController: NSViewController {
         // Piano keyboard along the bottom 25% with live MIDI highlights.
         PianoOverlay.draw(into: ctx, rect: dst,
                           activeNotes: pianoState.activeVelocities,
-                          sustainDown: pianoState.isSustainDown)
+                          pedals: pianoState.pedalsState)
 
         return ctx.makeImage()
     }

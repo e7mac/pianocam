@@ -105,8 +105,7 @@ final class MIDIInput {
             case 0xB0:
                 let cc = note
                 let value7 = UInt8(min(127, Int(words[1] >> 25)))
-                if cc == 64 { emit(.sustain(down: value7 >= 64)) }
-                if cc == 123 { emit(.allNotesOff) }
+                handleCC(cc: cc, value: value7, emit: emit)
             default: break
             }
         default: break
@@ -118,9 +117,17 @@ final class MIDIInput {
         switch opcode {
         case 0x90: emit(d2 == 0 ? .noteOff(note: d1) : .noteOn(note: d1, velocity: d2))
         case 0x80: emit(.noteOff(note: d1))
-        case 0xB0:
-            if d1 == 64 { emit(.sustain(down: d2 >= 64)) }
-            if d1 == 123 { emit(.allNotesOff) }
+        case 0xB0: handleCC(cc: d1, value: d2, emit: emit)
+        default: break
+        }
+    }
+
+    private static func handleCC(cc: UInt8, value: UInt8, emit: (MIDIEvent) -> Void) {
+        switch cc {
+        case 64: emit(.pedal(.sustain,   down: value >= 64))
+        case 66: emit(.pedal(.sostenuto, down: value >= 64))
+        case 67: emit(.pedal(.soft,      down: value >= 64))
+        case 123: emit(.allNotesOff)
         default: break
         }
     }

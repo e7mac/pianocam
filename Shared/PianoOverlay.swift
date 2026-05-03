@@ -11,11 +11,12 @@ import Foundation
 // MARK: - PianoOverlay (inlined; will be extracted to a shared file in a later step)
 
 enum PianoOverlay {
+    /// `pedals` order: (soft, sostenuto, sustain) — matches piano keyboard layout (left to right).
     static func draw(into ctx: CGContext,
                      rect: CGRect,
                      heightFraction: CGFloat = 0.30,
                      activeNotes: [UInt8: UInt8] = [:],
-                     sustainDown: Bool = false) {
+                     pedals: (soft: Bool, sostenuto: Bool, sustain: Bool) = (false, false, false)) {
         let h = rect.height * heightFraction
         // Small safe-area margin so the bottom of the pedal isn't flush to
         // the frame edge (some video apps crop a few pixels of the bottom).
@@ -40,7 +41,7 @@ enum PianoOverlay {
         drawFelt(ctx: ctx, rect: felt, cs: cs)
         drawWhiteKeys(ctx: ctx, rect: keyboard, cs: cs, active: activeNotes)
         drawBlackKeys(ctx: ctx, rect: keyboard, cs: cs, active: activeNotes)
-        drawPedal(ctx: ctx, rect: pedal, cs: cs, sustainDown: sustainDown)
+        drawPedal(ctx: ctx, rect: pedal, cs: cs, pedals: pedals)
     }
 
     private static let whiteNotes: [UInt8] = {
@@ -50,8 +51,8 @@ enum PianoOverlay {
     }()
 
     /// Three pedals (una corda, sostenuto, sustain) drawn below the keyboard.
-    /// Only the sustain pedal animates from MIDI right now.
-    private static func drawPedal(ctx: CGContext, rect: CGRect, cs: CGColorSpace, sustainDown: Bool) {
+    private static func drawPedal(ctx: CGContext, rect: CGRect, cs: CGColorSpace,
+                                  pedals: (soft: Bool, sostenuto: Bool, sustain: Bool)) {
         // Dark floor under the pedal lyre.
         ctx.setFillColor(red: 0, green: 0, blue: 0, alpha: 0.6)
         ctx.fill(rect)
@@ -65,7 +66,7 @@ enum PianoOverlay {
             cx,                  // sostenuto
             cx + pedalSpacing,   // sustain
         ]
-        let active = [false, false, sustainDown]
+        let active = [pedals.soft, pedals.sostenuto, pedals.sustain]
 
         for (i, x) in positions.enumerated() {
             drawSinglePedal(ctx: ctx, rect: rect, cs: cs, centerX: x,
