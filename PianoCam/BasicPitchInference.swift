@@ -36,10 +36,10 @@ final class BasicPitchInference {
     private var activeNotes: Set<UInt8> = []
 
     /// Probabilities at which we accept a note onset / continued note.
-    private let onsetThreshold: Float = 0.65
-    private let frameThreshold: Float = 0.45
+    private let onsetThreshold: Float = 0.50
+    private let frameThreshold: Float = 0.30
     /// Fraction of recent frames that must be "active" for a sustained note.
-    private let sustainedFraction: Float = 0.55
+    private let sustainedFraction: Float = 0.40
 
     init() throws {
         env = try ORTEnv(loggingLevel: .warning)
@@ -94,10 +94,20 @@ final class BasicPitchInference {
 
     private func runInference(audio: [Float]) {
         do {
+            // Peak-normalize the 2s window — Basic Pitch was trained on
+            // normalized audio and underestimates note activity on quiet input.
+            var peak: Float = 0
+            for s in audio { let a = abs(s); if a > peak { peak = a } }
+            var normalized = audio
+            if peak > 0.001 {
+                let gain = 0.9 / peak
+                for i in 0..<normalized.count { normalized[i] *= gain }
+            }
+
             let shape: [NSNumber] = [1, NSNumber(value: Self.modelWindowSamples), 1]
-            let bytes = audio.count * MemoryLayout<Float>.stride
+            let bytes = normalized.count * MemoryLayout<Float>.stride
             let data = NSMutableData(length: bytes)!
-            audio.withUnsafeBufferPointer { src in
+            normalized.withUnsafeBufferPointer { src in
                 memcpy(data.mutableBytes, src.baseAddress, bytes)
             }
             let input = try ORTValue(tensorData: data, elementType: .float, shape: shape)
@@ -147,6 +157,20 @@ final class BasicPitchInference {
             let tailFrames = 22
             let startFrame = max(0, frameCount - tailFrames)
             let totalTail = frameCount - startFrame
+
+            // Diagnostic: log peak probabilities seen in the recent window.
+            var maxNote: Float = 0
+            var maxOnset: Float = 0
+            for f in startFrame..<frameCount {
+                for p in 0..<pitchCount {
+                    let i = f * pitchCount + p
+                    if noteProbs[i] > maxNote { maxNote = noteProbs[i] }
+                    if onsetProbs[i] > maxOnset { maxOnset = onsetProbs[i] }
+                }
+            }
+            if Int.random(in: 0..<5) == 0 {
+                NSLog("PianoCam basicpitch: peak note=\(String(format: "%.2f", maxNote)) onset=\(String(format: "%.2f", maxOnset)) audioPeak=\(String(format: "%.3f", peak))")
+            }
 
             var detectedActive: Set<UInt8> = []
             var detectedOnsets: [UInt8: Float] = [:]   // note -> peak onset score
