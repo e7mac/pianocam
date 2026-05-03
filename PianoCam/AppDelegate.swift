@@ -11,7 +11,17 @@ import Cocoa
 class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ aNotification: Notification) {
-        // Insert code here to initialize your application
+        // Resize the storyboard's main window to a comfortable default size
+        // and center it on screen.
+        if let window = NSApplication.shared.windows.first {
+            window.title = "PianoCam"
+            let size = NSSize(width: 1100, height: 720)
+            var frame = window.frame
+            frame.size = size
+            window.setFrame(frame, display: true)
+            window.center()
+            window.minSize = NSSize(width: 800, height: 540)
+        }
     }
 
     func applicationWillTerminate(_ aNotification: Notification) {

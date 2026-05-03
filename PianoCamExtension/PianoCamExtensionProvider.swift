@@ -119,6 +119,67 @@ class cameraDeviceSource: NSObject, CMIOExtensionDeviceSource {
     let paragraphStyle = NSMutableParagraphStyle()
     let textFontAttributes: [NSAttributedString.Key : Any]
 
+    /// Drawn into the camera region (top 70%) when no host frames are flowing,
+    /// so consumers like Zoom/QuickTime see a useful "what to do" message
+    /// instead of a black box.
+    func drawIdleInstructions(in dstRect: CGRect) {
+        let pianoFraction: CGFloat = 0.30
+        let cameraTop = dstRect.height * (1 - pianoFraction)
+        let centerY = cameraTop / 2
+
+        let center = NSMutableParagraphStyle()
+        center.alignment = .center
+
+        let title = "PianoCam is ready."
+        let subtitle = "Open the PianoCam app on your Mac to start streaming."
+        let detail = "First time? Click Activate, then approve the camera extension in\nSystem Settings → Privacy & Security → Camera Extensions."
+
+        let titleSize: CGFloat = 56
+        let subSize: CGFloat = 32
+        let detailSize: CGFloat = 22
+
+        let titleAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: titleSize, weight: .semibold),
+            .foregroundColor: NSColor.white,
+            .paragraphStyle: center
+        ]
+        let subAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: subSize, weight: .regular),
+            .foregroundColor: NSColor(white: 0.85, alpha: 1),
+            .paragraphStyle: center
+        ]
+        let detailAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: detailSize, weight: .regular),
+            .foregroundColor: NSColor(white: 0.65, alpha: 1),
+            .paragraphStyle: center
+        ]
+
+        let titleString = title as NSString
+        let subString = subtitle as NSString
+        let detailString = detail as NSString
+
+        // Stack the three lines vertically, centered horizontally.
+        let lineGap: CGFloat = 18
+        let titleH = titleSize * 1.3
+        let subH = subSize * 1.3
+        let detailH = detailSize * 1.5 * 2 // two lines
+
+        let totalH = titleH + lineGap + subH + lineGap + detailH
+        var y = centerY + totalH / 2 - titleH
+
+        let drawWidth = dstRect.width * 0.85
+        let xOrigin = (dstRect.width - drawWidth) / 2
+
+        titleString.draw(in: CGRect(x: xOrigin, y: y, width: drawWidth, height: titleH),
+                         withAttributes: titleAttrs)
+        y -= subH + lineGap
+        subString.draw(in: CGRect(x: xOrigin, y: y, width: drawWidth, height: subH),
+                       withAttributes: subAttrs)
+        y -= detailH + lineGap
+        detailString.draw(in: CGRect(x: xOrigin, y: y, width: drawWidth, height: detailH),
+                          withAttributes: detailAttrs)
+    }
+
     func startStreaming() {
         
         guard let _ = _bufferPool else {
@@ -170,8 +231,9 @@ class cameraDeviceSource: NSObject, CMIOExtensionDeviceSource {
                     cgContext.clear(dstRect)
                     cgContext.setFillColor(NSColor.black.cgColor)
                     cgContext.fill(dstRect)
+                    self.drawIdleInstructions(in: dstRect)
                     PianoOverlay.draw(into: cgContext, rect: dstRect)
-                    _ = text // silence unused-warning until we add HUD again
+                    _ = text
                     NSGraphicsContext.restoreGraphicsState()
                 }
                 CVPixelBufferUnlockBaseAddress(pixelBuffer, [])
