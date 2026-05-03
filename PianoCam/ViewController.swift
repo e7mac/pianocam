@@ -642,7 +642,7 @@ class ViewController: NSViewController {
         // Piano + pedals along the bottom band.
         PianoOverlay.draw(into: ctx, rect: dst,
                           heightFraction: pianoFraction,
-                          activeNotes: pianoState.activeVelocities,
+                          activeNotes: pianoState.renderedVelocities(at: Date().timeIntervalSince1970),
                           pedals: pianoState.pedalsState)
 
         return ctx.makeImage()

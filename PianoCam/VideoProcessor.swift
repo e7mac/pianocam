@@ -272,12 +272,14 @@ final class VideoProcessor: ObservableObject {
                     let pts = CMSampleBufferGetPresentationTimeStamp(sample)
                     let timeSec = pts.seconds
                     while eventIdx < sortedEvents.count && sortedEvents[eventIdx].time <= timeSec {
-                        pianoState.handle(sortedEvents[eventIdx].event)
+                        pianoState.handle(sortedEvents[eventIdx].event,
+                                          at: sortedEvents[eventIdx].time)
                         eventIdx += 1
                     }
                     guard let sourcePB = CMSampleBufferGetImageBuffer(sample) else { continue }
                     if let composited = self.compositeFrame(source: sourcePB,
                                                             pianoState: pianoState,
+                                                            time: timeSec,
                                                             ciContext: ciContext) {
                         if !pixelAdaptor.append(composited, withPresentationTime: pts) {
                             NSLog("VideoProcessor: video append failed at \(timeSec)")
@@ -320,6 +322,7 @@ final class VideoProcessor: ObservableObject {
 
     private func compositeFrame(source: CVPixelBuffer,
                                 pianoState: PianoState,
+                                time: TimeInterval,
                                 ciContext: CIContext) -> CVPixelBuffer? {
         let w = CVPixelBufferGetWidth(source)
         let h = CVPixelBufferGetHeight(source)
@@ -370,7 +373,7 @@ final class VideoProcessor: ObservableObject {
         PianoOverlay.draw(into: ctx,
                           rect: CGRect(x: 0, y: 0, width: w, height: h),
                           heightFraction: pianoFraction,
-                          activeNotes: pianoState.activeVelocities,
+                          activeNotes: pianoState.renderedVelocities(at: time),
                           pedals: pianoState.pedalsState)
         return out
     }
