@@ -32,7 +32,7 @@ targets:
     entitlements:
       path: PianoCam/PianoCam.entitlements
       properties:
-        com.apple.security.app-sandbox: false
+        com.apple.security.app-sandbox: true
         com.apple.security.device.camera: true
         com.apple.developer.system-extension.install: true
         com.apple.security.application-groups:
