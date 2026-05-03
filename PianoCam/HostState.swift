@@ -48,6 +48,13 @@ final class HostState: ObservableObject {
     @Published var bpSustainedFraction: Float = 0.25
     @Published var bpMinHoldSeconds: Double = 0.5
 
+    /// Video processing UI state, mirrored from VideoProcessor.
+    @Published var videoProcessing: Bool = false
+    @Published var videoProcessingPhase: String = ""
+    @Published var videoProcessingProgress: Double = 0
+    @Published var videoProcessingError: String?
+    @Published var videoProcessingOutput: URL?
+
     /// Append a line to the rolling debug log.
     func log(_ line: String) {
         statusMessage = line
@@ -64,4 +71,6 @@ struct HostActions {
     var audioToggled: (Bool) -> Void
     var audioInputSelected: (AVCaptureDevice) -> Void
     var audioModeChanged: (AudioPitchMode) -> Void
+    var processVideo: () -> Void
+    var revealOutput: () -> Void
 }

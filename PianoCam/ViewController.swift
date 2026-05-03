@@ -27,6 +27,7 @@ class ViewController: NSViewController {
     private let previewLayer = AVSampleBufferDisplayLayer()
     private let hostState = HostState()
     private let audioDetector = AudioPitchDetector()
+    private let videoProcessor = VideoProcessor()
     private var readyToEnqueue = false
     private var enqueued = false
     private var _videoDescription: CMFormatDescription!
@@ -248,6 +249,45 @@ class ViewController: NSViewController {
         deactivateCamera()
     }
 
+    private var videoProcessorObservers: [AnyCancellable] = []
+
+    private func startVideoProcessing() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.movie, .quickTimeMovie, .mpeg4Movie]
+        panel.allowsMultipleSelection = false
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.title = "Pick a video to process"
+        guard panel.runModal() == .OK, let input = panel.url else { return }
+
+        let save = NSSavePanel()
+        save.allowedContentTypes = [.mpeg4Movie]
+        save.nameFieldStringValue = input.deletingPathExtension().lastPathComponent + " — PianoCam.mp4"
+        save.title = "Save processed video"
+        guard save.runModal() == .OK, let output = save.url else { return }
+
+        // Bridge processor publishers → HostState.
+        videoProcessorObservers = [
+            videoProcessor.$phase.receive(on: DispatchQueue.main).sink { [weak self] phase in
+                guard let self else { return }
+                self.hostState.videoProcessing = (phase == .analyzingAudio || phase == .rendering)
+                self.hostState.videoProcessingPhase = phase.rawValue
+            },
+            videoProcessor.$progress.receive(on: DispatchQueue.main).sink { [weak self] p in
+                self?.hostState.videoProcessingProgress = p
+            },
+            videoProcessor.$lastError.receive(on: DispatchQueue.main).sink { [weak self] e in
+                self?.hostState.videoProcessingError = e
+            },
+            videoProcessor.$lastOutputURL.receive(on: DispatchQueue.main).sink { [weak self] u in
+                self?.hostState.videoProcessingOutput = u
+            }
+        ]
+        videoProcessor.process(input: input,
+                               output: output,
+                               settings: audioDetector.basicPitchSettings)
+    }
+
     @objc func reconnect(_ sender: Any? = nil) {
         sourceStream = nil
         sinkStream = nil
@@ -381,6 +421,11 @@ class ViewController: NSViewController {
                 guard let self else { return }
                 self.hostState.audioMode = mode
                 self.audioDetector.mode = mode
+            },
+            processVideo: { [weak self] in self?.startVideoProcessing() },
+            revealOutput: { [weak self] in
+                guard let url = self?.hostState.videoProcessingOutput else { return }
+                NSWorkspace.shared.activateFileViewerSelecting([url])
             }
         )
         let panel = ControlPanel(state: hostState, actions: actions, previewLayer: previewLayer)

@@ -18,6 +18,11 @@ struct ControlPanel: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            if state.videoProcessing || state.videoProcessingError != nil
+                || state.videoProcessingOutput != nil {
+                Divider()
+                videoProcessingBar
+            }
             Divider()
             controlsRow
             if state.audioMode == .basicPitch && state.audioEnabled {
@@ -30,6 +35,32 @@ struct ControlPanel: View {
                 .background(Color.black)
         }
         .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private var videoProcessingBar: some View {
+        HStack(spacing: 12) {
+            if state.videoProcessing {
+                ProgressView(value: state.videoProcessingProgress)
+                    .progressViewStyle(.linear)
+                    .frame(maxWidth: .infinity)
+                Text(state.videoProcessingPhase + " — " + String(format: "%.0f%%", state.videoProcessingProgress * 100))
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            } else if let err = state.videoProcessingError {
+                Text("Video processing failed: \(err)")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.red)
+                    .lineLimit(2)
+            } else if state.videoProcessingOutput != nil {
+                Text("Video saved.")
+                    .font(.system(size: 11))
+                Button("Reveal in Finder", action: actions.revealOutput)
+                    .controlSize(.small)
+                Spacer()
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
     }
 
     private var basicPitchSettings: some View {
@@ -102,6 +133,9 @@ struct ControlPanel: View {
                 .disabled(state.extensionStatus != .active)
             Button("Reconnect", action: actions.reconnect)
                 .help("Re-link the host app to the camera extension's sink stream.")
+            Button("Process Video…", action: actions.processVideo)
+                .disabled(state.videoProcessing)
+                .help("Pick a video file; PianoCam analyzes its audio and renders a new video with the piano overlay.")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
