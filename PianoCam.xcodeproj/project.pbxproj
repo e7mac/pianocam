@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		029C0106ACAA060FC1FDAD13 /* AudioPitchDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = D393D4C9DA1AD372D102537C /* AudioPitchDetector.swift */; };
 		2E7C6AA86994FE88AEBF224B /* HostState.swift in Sources */ = {isa = PBXBuildFile; fileRef = F137BDA3E7EC8F9B9B3963E0 /* HostState.swift */; };
+		33C36A8F31464758BA7AC378 /* BasicPitchModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9618EB103827DEB3B45CBD1D /* BasicPitchModel.swift */; };
 		426E1CCB277DF3FED07FBE52 /* ControlPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15C3519032B9556B6AD3044E /* ControlPanel.swift */; };
 		50E364166E92D49155FDB2B5 /* PianoState.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB15F4627C804220285EE490 /* PianoState.swift */; };
 		5D736BF14559E87C97963652 /* CameraCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E46B18EDE87317291CD818 /* CameraCapture.swift */; };
@@ -20,6 +21,7 @@
 		A8634B9D2FA7DD8300177FBA /* BasicPitch.onnx in Resources */ = {isa = PBXBuildFile; fileRef = A8634B9B2FA7DD8300177FBA /* BasicPitch.onnx */; };
 		ADCB846C6C9A98B174428CC0 /* BasicPitch.mlpackage in Resources */ = {isa = PBXBuildFile; fileRef = 01260C45F190FD778854DE2B /* BasicPitch.mlpackage */; };
 		D265D9D0214945C418D72677 /* VoiceActivityDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 296FF0EED37A6CFB44FDBBF9 /* VoiceActivityDetector.swift */; };
+		D99EACCED011E0A4135DBBBA /* BasicPitchModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9618EB103827DEB3B45CBD1D /* BasicPitchModel.swift */; };
 		E94BAC4EB866570DB1D5F60C /* PianoOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00FB38140ECBDF9C1231CBF6 /* PianoOverlay.swift */; };
 		F3A05A1B9C24ED261A06EC34 /* BasicPitchInference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CBBACBF07E6CA03C9B05FC3 /* BasicPitchInference.swift */; };
 		F990A869286F663F00159819 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F990A868286F663F00159819 /* AppDelegate.swift */; };
@@ -65,6 +67,7 @@
 		296FF0EED37A6CFB44FDBBF9 /* VoiceActivityDetector.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceActivityDetector.swift; sourceTree = "<group>"; };
 		43D9FC8B733C2EDA611F0D57 /* VideoProcessor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VideoProcessor.swift; sourceTree = "<group>"; };
 		80E46B18EDE87317291CD818 /* CameraCapture.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CameraCapture.swift; sourceTree = "<group>"; };
+		9618EB103827DEB3B45CBD1D /* BasicPitchModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BasicPitchModel.swift; sourceTree = "<group>"; };
 		A600A846F6B8348B5121964A /* MIDIInput.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MIDIInput.swift; sourceTree = "<group>"; };
 		A8634B9B2FA7DD8300177FBA /* BasicPitch.onnx */ = {isa = PBXFileReference; lastKnownFileType = file; path = BasicPitch.onnx; sourceTree = "<group>"; };
 		D393D4C9DA1AD372D102537C /* AudioPitchDetector.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AudioPitchDetector.swift; sourceTree = "<group>"; };
@@ -108,6 +111,7 @@
 			children = (
 				A8634B9C2FA7DD8300177FBA /* Models */,
 				00FB38140ECBDF9C1231CBF6 /* PianoOverlay.swift */,
+				9618EB103827DEB3B45CBD1D /* BasicPitchModel.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -292,6 +296,7 @@
 				F3A05A1B9C24ED261A06EC34 /* BasicPitchInference.swift in Sources */,
 				9CA655AE16A834084FFD9A3F /* VideoProcessor.swift in Sources */,
 				D265D9D0214945C418D72677 /* VoiceActivityDetector.swift in Sources */,
+				33C36A8F31464758BA7AC378 /* BasicPitchModel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -303,6 +308,7 @@
 				F990A87E286F666500159819 /* PianoCamExtensionProvider.swift in Sources */,
 				F990A88C287047FE00159819 /* Config.swift in Sources */,
 				E94BAC4EB866570DB1D5F60C /* PianoOverlay.swift in Sources */,
+				D99EACCED011E0A4135DBBBA /* BasicPitchModel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

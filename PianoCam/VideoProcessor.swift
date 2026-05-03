@@ -12,7 +12,6 @@ import CoreImage
 import CoreMedia
 import CoreVideo
 import Foundation
-import OnnxRuntimeBindings
 
 @MainActor
 final class VideoProcessor: ObservableObject {
@@ -398,47 +397,47 @@ final class VideoProcessor: ObservableObject {
 
 // MARK: - Offline Basic Pitch
 
-/// Runs Basic Pitch in batch over a long buffer. Same model + post-processing
-/// as the realtime path; just no streaming gating.
+/// Runs Basic Pitch in batch over a long buffer using native CoreML.
+///
+/// The audio is divided into overlapping 2 s windows hopped by ~250 ms. For
+/// each window we run the model once, then walk the *fresh* portion of the
+/// output (the part we didn't already see in the previous window) and pick
+/// onsets via local-maximum peak picking on the per-pitch onset map. Note-
+/// active state is tracked across windows so a sustained note doesn't
+/// constantly retrigger.
 private final class OfflineBasicPitchAnalyzer {
-    private let env: ORTEnv
-    private let session: ORTSession
+    private let model: BasicPitchModel
+    init() throws { self.model = try BasicPitchModel() }
 
-    init() throws {
-        env = try ORTEnv(loggingLevel: .warning)
-        guard let url = Bundle.main.url(forResource: "BasicPitch", withExtension: "onnx") else {
-            throw NSError(domain: "PianoCam", code: 1, userInfo: [
-                NSLocalizedDescriptionKey: "BasicPitch.onnx not in app bundle"
-            ])
-        }
-        let opts = try ORTSessionOptions()
-        try? opts.appendCoreMLExecutionProvider(with: ORTCoreMLExecutionProviderOptions())
-        session = try ORTSession(env: env, modelPath: url.path, sessionOptions: opts)
-    }
-
-    /// Returns a sorted list of (time, event) tuples. Scans every model frame
-    /// in every window, so staccato events keep their real timestamps.
+    /// Returns a sorted list of (time, event) tuples.
     func process(samples: [Float],
                  sampleRate: Double,
                  settings: BasicPitchInference.Settings,
                  progress: @escaping (Double) -> Void) -> [(time: TimeInterval, event: MIDIEvent)] {
-        let windowSize = 43_844
-        let frameCount = 172
-        let pitchCount = 88
-        let frameDuration = (Double(windowSize) / sampleRate) / Double(frameCount)  // ≈11.6ms
-        let hop = windowSize / 4
+        let windowSize = BasicPitchModel.windowSamples
+        let frameCount = BasicPitchModel.frameCount
+        let pitchCount = BasicPitchModel.pitchCount
+        // Audio frame duration at the source sample rate; output frame
+        // duration depends on the model, not the source SR.
+        let frameDuration = (Double(windowSize) / sampleRate) / Double(frameCount)
+        // Hop = ~250 ms ≈ 22 frames, matching the live tail size. Each
+        // window's fresh portion is the last `freshFrames` frames; older
+        // frames are already covered by the previous window.
+        let hopSamples = Int(0.25 * sampleRate)
+        let freshFrames = max(1, Int((Double(hopSamples) / Double(windowSize) * Double(frameCount)).rounded()))
         let totalDuration = Double(samples.count) / sampleRate
 
-        // Time-indexed structures keyed by pitch.
-        var lastOnsetAt: [UInt8: TimeInterval] = [:]
+        // Active-note state across windows: which pitches are currently held,
+        // when they were last activated, when their note-frame was last seen.
+        var onTimes: [UInt8: TimeInterval] = [:]
         var lastActiveAt: [UInt8: TimeInterval] = [:]
-        var onTimes: [UInt8: TimeInterval] = [:]   // when each currently-on note fired
         var events: [(TimeInterval, MIDIEvent)] = []
-
-        let onsetCooldown: TimeInterval = 0.04     // dedup repeated onset detections
-        let releaseGap: TimeInterval = 0.12        // emit note-off after this much silence
+        // Brief min-hold to suppress reverberant micro-retriggers.
+        let minHold: TimeInterval = 0.04
+        let releaseGap: TimeInterval = 0.12
 
         var windowStart = 0
+        var firstWindow = true
         while windowStart + windowSize <= samples.count {
             // Peak-normalize.
             var window = Array(samples[windowStart..<windowStart + windowSize])
@@ -449,55 +448,79 @@ private final class OfflineBasicPitchAnalyzer {
                 for i in 0..<window.count { window[i] *= gain }
             }
 
-            guard let (note, onset) = runInference(audio: window) else {
-                windowStart += hop
+            guard let (notes, onsets) = try? model.infer(audio: window) else {
+                windowStart += hopSamples
                 continue
             }
             let windowStartTime = Double(windowStart) / sampleRate
 
-            // Walk every frame; emit note-on at actual onset times (deduped).
-            for f in 0..<frameCount {
+            // First window: walk all frames. Subsequent: only the fresh tail.
+            let scanStart = firstWindow ? 0 : (frameCount - freshFrames)
+            firstWindow = false
+
+            // Per-frame onset peak-picking + per-pitch note-active tracking.
+            var perWindowOnsetPeaks: [UInt8: Float] = [:]   // for octave suppression
+
+            for f in scanStart..<frameCount {
                 let frameTime = windowStartTime + Double(f) * frameDuration
                 let base = f * pitchCount
                 for p in 0..<pitchCount {
                     let midi = UInt8(21 + p)
-                    let oVal = onset[base + p]
-                    let nVal = note[base + p]
-
-                    if oVal >= settings.onsetThreshold {
-                        let last = lastOnsetAt[midi] ?? -1
-                        if frameTime - last >= onsetCooldown {
-                            // If still considered on, emit a noteOff first so the
-                            // visualizer re-attacks cleanly.
-                            if onTimes[midi] != nil {
-                                events.append((frameTime, .noteOff(note: midi)))
-                                onTimes.removeValue(forKey: midi)
-                            }
-                            events.append((frameTime, .noteOn(note: midi, velocity: 100)))
-                            onTimes[midi] = frameTime
-                            lastOnsetAt[midi] = frameTime
-                            lastActiveAt[midi] = frameTime
-                        }
-                    }
-
+                    let oVal = onsets[base + p]
+                    let nVal = notes[base + p]
                     if nVal >= settings.frameThreshold {
                         lastActiveAt[midi] = frameTime
                     }
+                    // Local-max onset: rising edge into a peak strictly
+                    // above the previous frame, ≥ the next.
+                    let prevVal: Float = (f > 0) ? onsets[(f - 1) * pitchCount + p] : 0
+                    let nextVal: Float = (f + 1 < frameCount) ? onsets[(f + 1) * pitchCount + p] : 0
+                    guard oVal > settings.onsetThreshold, oVal > prevVal, oVal >= nextVal else { continue }
+
+                    // Don't retrigger the same pitch within minHold.
+                    if let prevOn = onTimes[midi], frameTime - prevOn < minHold { continue }
+                    perWindowOnsetPeaks[midi] = max(perWindowOnsetPeaks[midi] ?? 0, oVal)
+
+                    // Emit note-off + note-on for retriggers; plain note-on otherwise.
+                    if onTimes[midi] != nil {
+                        events.append((frameTime, .noteOff(note: midi)))
+                    }
+                    let velocity = BasicPitchInference.velocityFromOnset(oVal)
+                    events.append((frameTime, .noteOn(note: midi, velocity: velocity)))
+                    onTimes[midi] = frameTime
+                    lastActiveAt[midi] = frameTime
+                }
+            }
+
+            // Octave suppression: if both N and N+12 fired in this window
+            // and upper is much weaker, undo the upper's note-on/off pair
+            // (likely a second-harmonic ghost).
+            for (midi, lowerScore) in perWindowOnsetPeaks {
+                let upper = midi &+ 12
+                guard let upperScore = perWindowOnsetPeaks[upper] else { continue }
+                if upperScore < lowerScore * 0.6 {
+                    // Drop the most-recent on/off pair for `upper`.
+                    var dropped = 0
+                    for i in stride(from: events.count - 1, through: 0, by: -1) where dropped < 2 {
+                        if case .noteOn(let n, _) = events[i].1, n == upper { events.remove(at: i); dropped += 1 }
+                        else if case .noteOff(let n) = events[i].1, n == upper { events.remove(at: i); dropped += 1 }
+                    }
+                    onTimes.removeValue(forKey: upper)
                 }
             }
 
             // Sweep release: any held note that's been silent for releaseGap is off.
+            let windowEndTime = windowStartTime + Double(frameCount) * frameDuration
             for (midi, _) in onTimes {
                 let last = lastActiveAt[midi] ?? 0
-                let now = windowStartTime + Double(frameCount) * frameDuration
-                if now - last > releaseGap {
+                if windowEndTime - last > releaseGap {
                     events.append((last + releaseGap, .noteOff(note: midi)))
                     onTimes.removeValue(forKey: midi)
                 }
             }
 
             progress(min(1, Double(windowStart + windowSize) / Double(samples.count)))
-            windowStart += hop
+            windowStart += hopSamples
         }
 
         // Final note-offs at the end.
@@ -505,38 +528,5 @@ private final class OfflineBasicPitchAnalyzer {
             events.append((totalDuration, .noteOff(note: midi)))
         }
         return events.sorted { $0.0 < $1.0 }
-    }
-
-    private func runInference(audio: [Float]) -> (note: [Float], onset: [Float])? {
-        do {
-            let shape: [NSNumber] = [1, NSNumber(value: audio.count), 1]
-            let bytes = audio.count * MemoryLayout<Float>.stride
-            let data = NSMutableData(length: bytes)!
-            audio.withUnsafeBufferPointer { src in
-                memcpy(data.mutableBytes, src.baseAddress, bytes)
-            }
-            let input = try ORTValue(tensorData: data, elementType: .float, shape: shape)
-
-            let outA = "StatefulPartitionedCall:1"
-            let outB = "StatefulPartitionedCall:2"
-            let outputs = try session.run(
-                withInputs: ["serving_default_input_2:0": input],
-                outputNames: Set([outA, outB]),
-                runOptions: nil
-            )
-            guard let valA = outputs[outA], let valB = outputs[outB] else { return nil }
-            let dataA = try valA.tensorData() as Data
-            let dataB = try valB.tensorData() as Data
-
-            let probsA = Array(dataA.withUnsafeBytes { $0.bindMemory(to: Float.self) })
-            let probsB = Array(dataB.withUnsafeBytes { $0.bindMemory(to: Float.self) })
-            let aMean = probsA.reduce(0, +) / Float(probsA.count)
-            let bMean = probsB.reduce(0, +) / Float(probsB.count)
-            let noteProbs = aMean >= bMean ? probsA : probsB
-            let onsetProbs = aMean >= bMean ? probsB : probsA
-            return (noteProbs, onsetProbs)
-        } catch {
-            return nil
-        }
     }
 }

@@ -2,16 +2,15 @@
 //  BasicPitchInference.swift
 //  PianoCam
 //
-//  Polyphonic piano transcription using Spotify's Basic Pitch model via
-//  native CoreML. Maintains a 2-second sliding audio buffer at 22050 Hz,
-//  runs inference periodically on the most recent window, and emits
+//  Live polyphonic piano transcription using Spotify's Basic Pitch model.
+//  Maintains a 2-second sliding audio buffer at 22050 Hz, runs inference
+//  periodically on the most recent window via `BasicPitchModel`, and emits
 //  synthetic note-on / note-off events into the same `PianoState` pipeline
 //  used by MIDI hardware.
 //
 
 import Foundation
 import AVFoundation
-import CoreML
 
 final class BasicPitchInference {
     /// Synthetic MIDI events from the model. Called on the inference queue.
@@ -19,14 +18,7 @@ final class BasicPitchInference {
     /// Diagnostics — last-inference info; nil until the first run.
     var onStatus: ((String) -> Void)?
 
-    static let modelSampleRate: Double = 22_050
-    static let modelWindowSamples = 43_844           // 2 s @ 22.05 kHz
-    static let modelFrames = 172                     // 86 fps for 2 s
-    static let modelPitches = 88
-
-    private let model: MLModel
-    private let inputName: String
-    private let outputNames: [String]
+    private let model: BasicPitchModel
     private let inferenceQueue = DispatchQueue(label: "pianocam.basicpitch", qos: .userInitiated)
 
     /// Audio at the model's native sample rate (22050 Hz).
@@ -38,12 +30,12 @@ final class BasicPitchInference {
     /// Inference cadence in samples at 22050 Hz. Lower = lower latency, higher
     /// CPU/ANE load. If a window's inference doesn't finish before the next
     /// stride boundary, the next tick is skipped (back-pressure via `inferring`).
-    private var inferenceStride: Int { Int(settings.inferenceIntervalSeconds * Self.modelSampleRate) }
+    private var inferenceStride: Int { Int(settings.inferenceIntervalSeconds * BasicPitchModel.sampleRate) }
     /// Tail frames analyzed after each inference, sized to match the stride so
     /// every onset is detected exactly once across consecutive inferences.
     private var tailFrames: Int {
-        let s = max(1, Int((Double(inferenceStride) / Double(Self.modelWindowSamples) * Double(Self.modelFrames)).rounded()))
-        return min(Self.modelFrames, s + 1)   // +1 frame slack to avoid boundary races
+        let s = max(1, Int((Double(inferenceStride) / Double(BasicPitchModel.windowSamples) * Double(BasicPitchModel.frameCount)).rounded()))
+        return min(BasicPitchModel.frameCount, s + 1)   // +1 frame slack to avoid boundary races
     }
 
     /// Notes currently considered "on" by the model (set of MIDI numbers).
@@ -59,7 +51,7 @@ final class BasicPitchInference {
         /// Inference cadence — lower = lower latency, higher CPU. Average
         /// note-on latency ≈ this/2 + ~30 ms (model compute) + ~30–50 ms
         /// (model's inherent post-onset context). On Apple Silicon with the
-        /// ANE, 0.10–0.15 s is comfortable.
+        /// ANE, 0.08–0.15 s is comfortable.
         var inferenceIntervalSeconds: Double = 0.08
         /// When true, audio chunks classified as speech are dropped before
         /// reaching the model. Cuts vocal-induced false positives, but the
@@ -73,54 +65,30 @@ final class BasicPitchInference {
     var settings = Settings()
 
     init() throws {
-        // At runtime, Xcode ships a compiled `.mlmodelc`. Fall back to the raw
-        // `.mlpackage` for projects that haven't yet rebuilt.
-        guard let url = Bundle.main.url(forResource: "BasicPitch", withExtension: "mlmodelc")
-                ?? Bundle.main.url(forResource: "BasicPitch", withExtension: "mlpackage") else {
-            throw NSError(domain: "PianoCam", code: 1, userInfo: [
-                NSLocalizedDescriptionKey: "BasicPitch model not in app bundle"
-            ])
-        }
-        let compiledURL: URL = (url.pathExtension == "mlmodelc")
-            ? url
-            : try MLModel.compileModel(at: url)
-
-        let cfg = MLModelConfiguration()
-        cfg.computeUnits = .all
-        self.model = try MLModel(contentsOf: compiledURL, configuration: cfg)
-
-        let desc = self.model.modelDescription
-        guard let inName = desc.inputDescriptionsByName.keys.first else {
-            throw NSError(domain: "PianoCam", code: 2, userInfo: [
-                NSLocalizedDescriptionKey: "BasicPitch model has no input"
-            ])
-        }
-        self.inputName = inName
-        self.outputNames = Array(desc.outputDescriptionsByName.keys).sorted()
-        ring.reserveCapacity(Self.modelWindowSamples * 2)
-        NSLog("PianoCam basicpitch: CoreML loaded — input=\(inName) outputs=\(outputNames)")
+        self.model = try BasicPitchModel()
+        ring.reserveCapacity(BasicPitchModel.windowSamples * 2)
     }
 
     /// Append fresh samples (at any source sample rate) and possibly run inference.
     func ingest(_ samples: [Float], sampleRate srcSR: Double) {
-        let resampled = Self.linearResample(samples, from: srcSR, to: Self.modelSampleRate)
+        let resampled = Self.linearResample(samples, from: srcSR, to: BasicPitchModel.sampleRate)
 
         // Speech rejection: if the just-arrived chunk looks like speech, drop it.
         // We do *not* reset state — brief speech overlapping piano shouldn't kill
         // the active notes; the ring buffer simply doesn't grow during the speech.
         if settings.rejectSpeech, !resampled.isEmpty,
-           VoiceActivityDetector.isSpeech(resampled, sampleRate: Self.modelSampleRate) {
+           VoiceActivityDetector.isSpeech(resampled, sampleRate: BasicPitchModel.sampleRate) {
             return
         }
 
         ring.append(contentsOf: resampled)
-        let cap = Self.modelWindowSamples * 2
+        let cap = BasicPitchModel.windowSamples * 2
         if ring.count > cap {
             ring.removeFirst(ring.count - cap)
         }
         samplesSinceLastInference += resampled.count
         guard samplesSinceLastInference >= inferenceStride,
-              ring.count >= Self.modelWindowSamples else { return }
+              ring.count >= BasicPitchModel.windowSamples else { return }
         // Back-pressure: if the previous inference hasn't finished, skip this
         // tick instead of queuing — but log it once in a while so the user
         // notices when the cadence is too aggressive for the device.
@@ -133,7 +101,7 @@ final class BasicPitchInference {
         }
         samplesSinceLastInference = 0
         inferring = true
-        let snapshot = Array(ring.suffix(Self.modelWindowSamples))
+        let snapshot = Array(ring.suffix(BasicPitchModel.windowSamples))
         inferenceQueue.async { [weak self] in
             self?.runInference(audio: snapshot)
             self?.inferring = false
@@ -151,86 +119,30 @@ final class BasicPitchInference {
 
     // MARK: - Inference
 
-    private var probedOutputs = false
-    private var noteOutputName: String?
-    private var onsetOutputName: String?
-
     private func runInference(audio: [Float]) {
+        // Peak-normalize the 2 s window — Basic Pitch was trained on
+        // normalized audio and underestimates note activity on quiet input.
+        var peak: Float = 0
+        for s in audio { let a = abs(s); if a > peak { peak = a } }
+        var normalized = audio
+        if peak > 0.001 {
+            let gain: Float = 0.9 / peak
+            for i in 0..<normalized.count { normalized[i] *= gain }
+        }
         do {
-            // Peak-normalize the 2 s window — Basic Pitch was trained on
-            // normalized audio and underestimates note activity on quiet input.
-            var peak: Float = 0
-            for s in audio { let a = abs(s); if a > peak { peak = a } }
-            var normalized = audio
-            if peak > 0.001 {
-                let gain: Float = 0.9 / peak
-                for i in 0..<normalized.count { normalized[i] *= gain }
-            }
-
-            let arr = try MLMultiArray(
-                shape: [1, NSNumber(value: Self.modelWindowSamples), 1],
-                dataType: .float32
-            )
-            let dst = arr.dataPointer.bindMemory(
-                to: Float.self, capacity: Self.modelWindowSamples
-            )
-            normalized.withUnsafeBufferPointer { src in
-                dst.update(from: src.baseAddress!, count: Self.modelWindowSamples)
-            }
-            let provider = try MLDictionaryFeatureProvider(dictionary: [inputName: arr])
-            let out = try model.prediction(from: provider)
-
-            // Of the (up to) 3 outputs, the two with shape (1, 172, 88) are
-            // note + onset. Probe by mean: the sustained note-prob map has a
-            // higher mean than the sparse onset map.
-            var pitchOutputs: [(name: String, arr: MLMultiArray)] = []
-            for name in outputNames {
-                guard let v = out.featureValue(for: name)?.multiArrayValue else { continue }
-                if v.shape.count == 3, v.shape[2].intValue == Self.modelPitches {
-                    pitchOutputs.append((name, v))
-                }
-            }
-            guard pitchOutputs.count >= 2 else {
-                NSLog("PianoCam basicpitch: unexpected pitch-output count \(pitchOutputs.count)")
-                return
-            }
-            if !probedOutputs {
-                let m0 = Self.mean(of: pitchOutputs[0].arr)
-                let m1 = Self.mean(of: pitchOutputs[1].arr)
-                if m0 >= m1 {
-                    noteOutputName = pitchOutputs[0].name
-                    onsetOutputName = pitchOutputs[1].name
-                } else {
-                    noteOutputName = pitchOutputs[1].name
-                    onsetOutputName = pitchOutputs[0].name
-                }
-                probedOutputs = true
-                NSLog("PianoCam basicpitch: probed — note=\(noteOutputName!) (mean=\(String(format: "%.3f", m0 >= m1 ? m0 : m1))), onset=\(onsetOutputName!) (mean=\(String(format: "%.3f", m0 >= m1 ? m1 : m0))) shape=\(pitchOutputs[0].arr.shape) strides=\(pitchOutputs[0].arr.strides)")
-            }
-            guard let nName = noteOutputName, let oName = onsetOutputName,
-                  let noteArr = out.featureValue(for: nName)?.multiArrayValue,
-                  let onsetArr = out.featureValue(for: oName)?.multiArrayValue else { return }
-
-            processOutput(noteArr: noteArr, onsetArr: onsetArr, audioPeak: peak)
+            let (note, onset) = try model.infer(audio: normalized)
+            processOutput(notes: note, onsets: onset, audioPeak: peak)
         } catch {
             NSLog("PianoCam basicpitch: inference failed — \(error)")
         }
     }
 
-    private func processOutput(noteArr: MLMultiArray, onsetArr: MLMultiArray, audioPeak: Float) {
-        let frameCount = Self.modelFrames
-        let pitchCount = Self.modelPitches
+    private func processOutput(notes: [Float], onsets: [Float], audioPeak: Float) {
+        let frameCount = BasicPitchModel.frameCount
+        let pitchCount = BasicPitchModel.pitchCount
         // Analyze just enough recent frames to cover one inference stride;
         // larger tails would re-detect onsets we already emitted last tick.
         let startFrame = max(0, frameCount - tailFrames)
-
-        let nPtr = noteArr.dataPointer.bindMemory(to: Float.self, capacity: noteArr.count)
-        let oPtr = onsetArr.dataPointer.bindMemory(to: Float.self, capacity: onsetArr.count)
-        // CoreML may not use contiguous strides for ANE-optimized models — read them.
-        let nFrameStride = noteArr.strides[1].intValue
-        let nPitchStride = noteArr.strides[2].intValue
-        let oFrameStride = onsetArr.strides[1].intValue
-        let oPitchStride = onsetArr.strides[2].intValue
 
         let onsetThr = settings.onsetThreshold
         let frameThr = settings.frameThreshold
@@ -250,8 +162,8 @@ final class BasicPitchInference {
             var activeCount = 0
             var maxOnsetInTail: Float = 0
             for f in startFrame..<frameCount {
-                let nVal = nPtr[f * nFrameStride + p * nPitchStride]
-                let oVal = oPtr[f * oFrameStride + p * oPitchStride]
+                let nVal = notes[f * pitchCount + p]
+                let oVal = onsets[f * pitchCount + p]
                 if nVal > frameThr { activeCount += 1 }
                 if oVal > maxOnsetInTail { maxOnsetInTail = oVal }
                 if oVal > diagMaxOnset { diagMaxOnset = oVal }
@@ -261,8 +173,8 @@ final class BasicPitchInference {
                 // previous frame in the same inference window (which is fine
                 // because the model output covers the full 2 s; only emission
                 // is restricted to the tail).
-                let prevVal: Float = (f > 0) ? oPtr[(f - 1) * oFrameStride + p * oPitchStride] : 0
-                let nextVal: Float = (f + 1 < frameCount) ? oPtr[(f + 1) * oFrameStride + p * oPitchStride] : 0
+                let prevVal: Float = (f > 0) ? onsets[(f - 1) * pitchCount + p] : 0
+                let nextVal: Float = (f + 1 < frameCount) ? onsets[(f + 1) * pitchCount + p] : 0
                 if oVal > onsetThr, oVal > prevVal, oVal >= nextVal {
                     newOnsets.append((time: f, note: UInt8(21 + p), score: oVal))
                 }
@@ -313,7 +225,7 @@ final class BasicPitchInference {
                 onEvent?(.noteOff(note: onset.note))
                 activeNotes.remove(onset.note)
             }
-            onEvent?(.noteOn(note: onset.note, velocity: 100))
+            onEvent?(.noteOn(note: onset.note, velocity: Self.velocityFromOnset(onset.score)))
             activeNotes.insert(onset.note)
             noteOnTimes[onset.note] = now
         }
@@ -324,12 +236,12 @@ final class BasicPitchInference {
 
     // MARK: - Helpers
 
-    private static func mean(of arr: MLMultiArray) -> Float {
-        let count = arr.count
-        let ptr = arr.dataPointer.bindMemory(to: Float.self, capacity: count)
-        var sum: Float = 0
-        for i in 0..<count { sum += ptr[i] }
-        return sum / Float(count)
+    /// Map onset prob → MIDI velocity. Onset prob is correlated with attack
+    /// strength: a strong piano attack gives prob ≥ 0.9; soft notes ≈ 0.5.
+    /// Linear-map [0.4, 1.0] → [40, 127] and clamp.
+    static func velocityFromOnset(_ p: Float) -> UInt8 {
+        let v = Int(40.0 + (max(0, p - 0.4) / 0.6) * 87.0)
+        return UInt8(min(127, max(1, v)))
     }
 
     /// Cheap linear-interpolation resampler. Good enough for piano work where
