@@ -387,55 +387,98 @@ private final class OfflineBasicPitchAnalyzer {
         session = try ORTSession(env: env, modelPath: url.path, sessionOptions: opts)
     }
 
-    /// Returns a sorted list of (time, event) tuples.
+    /// Returns a sorted list of (time, event) tuples. Scans every model frame
+    /// in every window, so staccato events keep their real timestamps.
     func process(samples: [Float],
                  sampleRate: Double,
                  settings: BasicPitchInference.Settings,
                  progress: @escaping (Double) -> Void) -> [(time: TimeInterval, event: MIDIEvent)] {
         let windowSize = 43_844
-        let hop = windowSize / 2
+        let frameCount = 172
+        let pitchCount = 88
+        let frameDuration = (Double(windowSize) / sampleRate) / Double(frameCount)  // ≈11.6ms
+        let hop = windowSize / 4
         let totalDuration = Double(samples.count) / sampleRate
+
+        // Time-indexed structures keyed by pitch.
+        var lastOnsetAt: [UInt8: TimeInterval] = [:]
+        var lastActiveAt: [UInt8: TimeInterval] = [:]
+        var onTimes: [UInt8: TimeInterval] = [:]   // when each currently-on note fired
         var events: [(TimeInterval, MIDIEvent)] = []
-        var activeNotes: Set<UInt8> = []
+
+        let onsetCooldown: TimeInterval = 0.07     // dedup repeated onset detections
+        let releaseGap: TimeInterval = 0.12        // emit note-off after this much silence
 
         var windowStart = 0
         while windowStart + windowSize <= samples.count {
-            let window = Array(samples[windowStart..<windowStart + windowSize])
-            // Peak normalize.
+            // Peak-normalize.
+            var window = Array(samples[windowStart..<windowStart + windowSize])
             var peak: Float = 0
             for s in window { let a = abs(s); if a > peak { peak = a } }
-            var normalized = window
             if peak > 0.001 {
                 let gain: Float = 0.9 / peak
-                for i in 0..<normalized.count { normalized[i] *= gain }
+                for i in 0..<window.count { window[i] *= gain }
             }
-            let (active, onsets) = runInference(audio: normalized, settings: settings)
 
-            // Window center time — events occur at the latter half of the window,
-            // place them at windowStart + windowSize * 0.75 to approximate.
-            let eventTime = Double(windowStart) / sampleRate + Double(windowSize) * 0.75 / sampleRate
-
-            for off in activeNotes.subtracting(active) {
-                events.append((eventTime, .noteOff(note: off)))
-                activeNotes.remove(off)
+            guard let (note, onset) = runInference(audio: window) else {
+                windowStart += hop
+                continue
             }
-            for on in onsets where !activeNotes.contains(on) {
-                events.append((eventTime, .noteOn(note: on, velocity: 100)))
-                activeNotes.insert(on)
+            let windowStartTime = Double(windowStart) / sampleRate
+
+            // Walk every frame; emit note-on at actual onset times (deduped).
+            for f in 0..<frameCount {
+                let frameTime = windowStartTime + Double(f) * frameDuration
+                let base = f * pitchCount
+                for p in 0..<pitchCount {
+                    let midi = UInt8(21 + p)
+                    let oVal = onset[base + p]
+                    let nVal = note[base + p]
+
+                    if oVal >= settings.onsetThreshold {
+                        let last = lastOnsetAt[midi] ?? -1
+                        if frameTime - last >= onsetCooldown {
+                            // If still considered on, emit a noteOff first so the
+                            // visualizer re-attacks cleanly.
+                            if onTimes[midi] != nil {
+                                events.append((frameTime, .noteOff(note: midi)))
+                                onTimes.removeValue(forKey: midi)
+                            }
+                            events.append((frameTime, .noteOn(note: midi, velocity: 100)))
+                            onTimes[midi] = frameTime
+                            lastOnsetAt[midi] = frameTime
+                            lastActiveAt[midi] = frameTime
+                        }
+                    }
+
+                    if nVal >= settings.frameThreshold {
+                        lastActiveAt[midi] = frameTime
+                    }
+                }
+            }
+
+            // Sweep release: any held note that's been silent for releaseGap is off.
+            for (midi, _) in onTimes {
+                let last = lastActiveAt[midi] ?? 0
+                let now = windowStartTime + Double(frameCount) * frameDuration
+                if now - last > releaseGap {
+                    events.append((last + releaseGap, .noteOff(note: midi)))
+                    onTimes.removeValue(forKey: midi)
+                }
             }
 
             progress(min(1, Double(windowStart + windowSize) / Double(samples.count)))
             windowStart += hop
         }
+
         // Final note-offs at the end.
-        for note in activeNotes {
-            events.append((totalDuration, .noteOff(note: note)))
+        for (midi, _) in onTimes {
+            events.append((totalDuration, .noteOff(note: midi)))
         }
         return events.sorted { $0.0 < $1.0 }
     }
 
-    private func runInference(audio: [Float], settings: BasicPitchInference.Settings)
-        -> (active: Set<UInt8>, onsets: Set<UInt8>) {
+    private func runInference(audio: [Float]) -> (note: [Float], onset: [Float])? {
         do {
             let shape: [NSNumber] = [1, NSNumber(value: audio.count), 1]
             let bytes = audio.count * MemoryLayout<Float>.stride
@@ -452,44 +495,19 @@ private final class OfflineBasicPitchAnalyzer {
                 outputNames: Set([outA, outB]),
                 runOptions: nil
             )
-            guard let valA = outputs[outA], let valB = outputs[outB] else { return ([], []) }
+            guard let valA = outputs[outA], let valB = outputs[outB] else { return nil }
             let dataA = try valA.tensorData() as Data
             let dataB = try valB.tensorData() as Data
 
-            let frameCount = 172, pitchCount = 88
-            let probsA = dataA.withUnsafeBytes { $0.bindMemory(to: Float.self) }
-            let probsB = dataB.withUnsafeBytes { $0.bindMemory(to: Float.self) }
+            let probsA = Array(dataA.withUnsafeBytes { $0.bindMemory(to: Float.self) })
+            let probsB = Array(dataB.withUnsafeBytes { $0.bindMemory(to: Float.self) })
             let aMean = probsA.reduce(0, +) / Float(probsA.count)
             let bMean = probsB.reduce(0, +) / Float(probsB.count)
-            let noteProbs = aMean >= bMean ? Array(probsA) : Array(probsB)
-            let onsetProbs = aMean >= bMean ? Array(probsB) : Array(probsA)
-
-            let tailFrames = 22
-            let startFrame = max(0, frameCount - tailFrames)
-            let totalTail = frameCount - startFrame
-            var detectedActive: Set<UInt8> = []
-            var detectedOnsets: Set<UInt8> = []
-            for p in 0..<pitchCount {
-                var activeCount = 0
-                var maxOnset: Float = 0
-                for f in startFrame..<frameCount {
-                    let i = f * pitchCount + p
-                    if noteProbs[i] > settings.frameThreshold { activeCount += 1 }
-                    if onsetProbs[i] > maxOnset { maxOnset = onsetProbs[i] }
-                }
-                let activeFraction = Float(activeCount) / Float(totalTail)
-                let midi = UInt8(21 + p)
-                if activeFraction >= settings.sustainedFraction
-                    || maxOnset >= settings.onsetThreshold {
-                    detectedActive.insert(midi)
-                }
-                if maxOnset >= settings.onsetThreshold {
-                    detectedOnsets.insert(midi)
-                }
-            }
-            return (detectedActive, detectedOnsets)
+            let noteProbs = aMean >= bMean ? probsA : probsB
+            let onsetProbs = aMean >= bMean ? probsB : probsA
+            return (noteProbs, onsetProbs)
         } catch {
-            return ([], [])
+            return nil
         }
     }
 }
