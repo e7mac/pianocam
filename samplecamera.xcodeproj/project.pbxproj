@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		5D736BF14559E87C97963652 /* CameraCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E46B18EDE87317291CD818 /* CameraCapture.swift */; };
 		6A847E38119D23790E0CA259 /* PianoOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00FB38140ECBDF9C1231CBF6 /* PianoOverlay.swift */; };
 		E94BAC4EB866570DB1D5F60C /* PianoOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00FB38140ECBDF9C1231CBF6 /* PianoOverlay.swift */; };
 		F990A869286F663F00159819 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F990A868286F663F00159819 /* AppDelegate.swift */; };
@@ -46,6 +47,7 @@
 
 /* Begin PBXFileReference section */
 		00FB38140ECBDF9C1231CBF6 /* PianoOverlay.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PianoOverlay.swift; sourceTree = "<group>"; };
+		80E46B18EDE87317291CD818 /* CameraCapture.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CameraCapture.swift; sourceTree = "<group>"; };
 		F990A865286F663F00159819 /* samplecamera.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = samplecamera.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F990A868286F663F00159819 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		F990A86A286F663F00159819 /* ViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewController.swift; sourceTree = "<group>"; };
@@ -114,6 +116,7 @@
 				F990A86C286F664500159819 /* Assets.xcassets */,
 				F990A86E286F664500159819 /* Main.storyboard */,
 				F990A871286F664500159819 /* samplecamera.entitlements */,
+				80E46B18EDE87317291CD818 /* CameraCapture.swift */,
 			);
 			path = samplecamera;
 			sourceTree = "<group>";
@@ -234,6 +237,7 @@
 				F990A869286F663F00159819 /* AppDelegate.swift in Sources */,
 				F990A88B287047FE00159819 /* Config.swift in Sources */,
 				6A847E38119D23790E0CA259 /* PianoOverlay.swift in Sources */,
+				5D736BF14559E87C97963652 /* CameraCapture.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -7,6 +7,7 @@
 
 import AVFoundation
 import Cocoa
+import CoreImage
 import CoreMediaIO
 import SystemExtensions
 
@@ -15,9 +16,12 @@ class ViewController: NSViewController {
     private var debugCaption: NSTextField!
     private var needToStreamCaption: NSTextField!
     private var needToStream: Bool = false
-    private var mirrorCamera: Bool = false
-    private var image = NSImage(named: "cham-index")
+    private var mirrorCamera: Bool = true   // webcam-style mirror
+    private var image = NSImage(named: "cham-index")  // legacy fallback
     private var activating: Bool = false
+    private let cameraCapture = CameraCapture()
+    private var latestCameraFrame: CVPixelBuffer?
+    private let frameLock = NSLock()
     private var readyToEnqueue = false
     private var enqueued = false
     private var _videoDescription: CMFormatDescription!
@@ -264,7 +268,15 @@ class ViewController: NSViewController {
 
         self.makeDevicesVisible()
         connectToCamera()
-        
+
+        cameraCapture.onFrame = { [weak self] pb in
+            guard let self else { return }
+            self.frameLock.lock()
+            self.latestCameraFrame = pb
+            self.frameLock.unlock()
+        }
+        cameraCapture.start()
+
         timer?.invalidate()
         timer = Timer.scheduledTimer(timeInterval: 1/30.0, target: self, selector: #selector(fireTimer), userInfo: nil, repeats: true)
         propTimer?.invalidate()
@@ -375,16 +387,64 @@ class ViewController: NSViewController {
         }
     }
     @objc func fireTimer() {
-        if needToStream {
-            if (enqueued == false || readyToEnqueue == true), let queue = self.sinkQueue {
-                enqueued = true
-                readyToEnqueue = false
-                if let image = image, let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) {
-                    self.enqueue(queue, cgImage)
-                }
-            }
+        guard needToStream,
+              (enqueued == false || readyToEnqueue == true),
+              let queue = self.sinkQueue else { return }
+        enqueued = true
+        readyToEnqueue = false
+        if let cg = makeCompositeFrame() {
+            self.enqueue(queue, cg)
+        } else if let image = image,
+                  let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+            // First-frame fallback before the webcam has produced anything.
+            self.enqueue(queue, cgImage)
         }
     }
+
+    /// Builds a CGImage at the virtual camera's resolution, drawn as
+    /// (latest webcam frame, aspect-fill) + (piano keyboard along the bottom).
+    private func makeCompositeFrame() -> CGImage? {
+        frameLock.lock()
+        let frame = latestCameraFrame
+        frameLock.unlock()
+        guard let frame else { return nil }
+
+        let w = Int(fixedCamWidth), h = Int(fixedCamHeight)
+        let cs = CGColorSpaceCreateDeviceRGB()
+        let bitmap = CGBitmapInfo.byteOrder32Little.rawValue
+                   | CGImageAlphaInfo.premultipliedFirst.rawValue
+        guard let ctx = CGContext(data: nil, width: w, height: h,
+                                  bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: cs, bitmapInfo: bitmap) else { return nil }
+
+        let dst = CGRect(x: 0, y: 0, width: w, height: h)
+        ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+        ctx.fill(dst)
+
+        // Aspect-fill draw of the webcam frame.
+        let cam = CIImage(cvPixelBuffer: frame)
+        let camW = cam.extent.width, camH = cam.extent.height
+        let scale = max(CGFloat(w) / camW, CGFloat(h) / camH)
+        let scaledW = camW * scale, scaledH = camH * scale
+        let dx = (CGFloat(w) - scaledW) / 2
+        let dy = (CGFloat(h) - scaledH) / 2
+        if let cg = ViewController.ciContext.createCGImage(cam, from: cam.extent) {
+            ctx.saveGState()
+            if mirrorCamera {
+                ctx.translateBy(x: CGFloat(w), y: 0)
+                ctx.scaleBy(x: -1, y: 1)
+            }
+            ctx.draw(cg, in: CGRect(x: dx, y: dy, width: scaledW, height: scaledH))
+            ctx.restoreGState()
+        }
+
+        // Piano keyboard along the bottom 25% (no live notes yet).
+        PianoOverlay.draw(into: ctx, rect: dst)
+
+        return ctx.makeImage()
+    }
+
+    private static let ciContext = CIContext(options: [.useSoftwareRenderer: false])
 
     override var representedObject: Any? {
         didSet {
