@@ -38,7 +38,11 @@ final class AudioPitchDetector: NSObject, ObservableObject {
     @Published var mode: AudioPitchMode = .basicPitch {
         didSet { handleModeChange(from: oldValue) }
     }
-    private var basicPitch: BasicPitchInference?
+    /// Read from the audio capture thread on every buffer to feed BP off-main.
+    /// `nonisolated(unsafe)` because class-ref writes are atomic on ARM64 and
+    /// writes only happen from the main actor; readers see either the old or
+    /// new instance, never a torn pointer. BP itself serializes its own state.
+    nonisolated(unsafe) private var basicPitch: BasicPitchInference?
     /// Live tunables that the SwiftUI panel mutates. Forwarded to the active
     /// `BasicPitchInference` instance.
     var basicPitchSettings = BasicPitchInference.Settings() {
@@ -222,6 +226,11 @@ extension AudioPitchDetector: AVCaptureAudioDataOutputSampleBufferDelegate {
     }
 
     private nonisolated func ingest(mono: [Float], sampleRate sr: Double) {
+        // Latency-critical: feed BasicPitch directly from the audio queue,
+        // avoiding the main-thread hop. BP's internal queue serializes from
+        // here.
+        basicPitch?.ingest(mono, sampleRate: sr)
+
         DispatchQueue.main.async { [weak self] in
             self?.appendAndAnalyze(mono: mono, sampleRate: sr)
         }
@@ -230,10 +239,8 @@ extension AudioPitchDetector: AVCaptureAudioDataOutputSampleBufferDelegate {
     private func appendAndAnalyze(mono: [Float], sampleRate sr: Double) {
         sampleRate = sr
 
-        // Always feed Basic Pitch first when polyphonic mode is on.
-        if mode == .basicPitch, let bp = basicPitch {
-            bp.ingest(mono, sampleRate: sr)
-        }
+        // BP is fed off-main from `ingest(mono:sampleRate:)` directly; this
+        // path only updates UI level + drives the YIN monophonic detector.
 
         ringBuffer.append(contentsOf: mono)
         // Keep the buffer bounded.
