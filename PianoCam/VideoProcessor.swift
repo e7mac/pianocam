@@ -51,8 +51,8 @@ final class VideoProcessor: ObservableObject {
         }
     }
 
-    private func run(input: URL, output: URL,
-                     settings: BasicPitchInference.Settings) async throws {
+    private nonisolated func run(input: URL, output: URL,
+                                 settings: BasicPitchInference.Settings) async throws {
         let asset = AVURLAsset(url: input)
         guard let audioTrack = try await asset.loadTracks(withMediaType: .audio).first else {
             throw NSError(domain: "PianoCam.VideoProcessor", code: 1,
@@ -88,9 +88,9 @@ final class VideoProcessor: ObservableObject {
 
     // MARK: - Audio analysis
 
-    private func analyzeAudio(asset: AVAsset,
-                              audioTrack: AVAssetTrack,
-                              settings: BasicPitchInference.Settings) async throws -> [(time: TimeInterval, event: MIDIEvent)] {
+    private nonisolated func analyzeAudio(asset: AVAsset,
+                                          audioTrack: AVAssetTrack,
+                                          settings: BasicPitchInference.Settings) async throws -> [(time: TimeInterval, event: MIDIEvent)] {
         // Read mono float samples at original SR.
         let outputSettings: [String: Any] = [
             AVFormatIDKey: kAudioFormatLinearPCM,
@@ -108,10 +108,10 @@ final class VideoProcessor: ObservableObject {
         reader.add(trackOutput)
         reader.startReading()
 
-        let nativeSR = audioTrack.naturalTimeScale > 0
-            ? Double(audioTrack.naturalTimeScale)
-            : 44_100.0
-        let assetDuration = max(0.001, CMTimeGetSeconds(asset.duration))
+        let nativeTimeScale = try await audioTrack.load(.naturalTimeScale)
+        let nativeSR = nativeTimeScale > 0 ? Double(nativeTimeScale) : 44_100.0
+        let durationCM = try await asset.load(.duration)
+        let assetDuration = max(0.001, CMTimeGetSeconds(durationCM))
 
         var allSamples: [Float] = []
         while let sample = trackOutput.copyNextSampleBuffer() {
@@ -153,11 +153,11 @@ final class VideoProcessor: ObservableObject {
 
     // MARK: - Video render
 
-    private func renderVideo(asset: AVAsset,
-                             videoTrack: AVAssetTrack,
-                             audioTrack: AVAssetTrack,
-                             events: [(time: TimeInterval, event: MIDIEvent)],
-                             outputURL: URL) async throws {
+    private nonisolated func renderVideo(asset: AVAsset,
+                                         videoTrack: AVAssetTrack,
+                                         audioTrack: AVAssetTrack,
+                                         events: [(time: TimeInterval, event: MIDIEvent)],
+                                         outputURL: URL) async throws {
         // Clean any stale file at the output path.
         try? FileManager.default.removeItem(at: outputURL)
 
@@ -167,6 +167,13 @@ final class VideoProcessor: ObservableObject {
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
         ]
         let videoOut = AVAssetReaderTrackOutput(track: videoTrack, outputSettings: videoSettings)
+
+        let audioFormatDescriptions = try await audioTrack.load(.formatDescriptions)
+        let audioChannels = audioFormatDescriptions.first.flatMap {
+            CMAudioFormatDescriptionGetStreamBasicDescription($0)?.pointee.mChannelsPerFrame
+        } ?? 2
+        let audioTimeScale = try await audioTrack.load(.naturalTimeScale)
+        let audioSampleRate = audioTimeScale > 0 ? Double(audioTimeScale) : 44_100
         let audioOut = AVAssetReaderTrackOutput(track: audioTrack,
             outputSettings: [
                 AVFormatIDKey: kAudioFormatLinearPCM,
@@ -174,8 +181,8 @@ final class VideoProcessor: ObservableObject {
                 AVLinearPCMIsFloatKey: false,
                 AVLinearPCMIsBigEndianKey: false,
                 AVLinearPCMIsNonInterleaved: false,
-                AVNumberOfChannelsKey: audioTrack.formatDescriptions.first.flatMap { ($0 as! CMFormatDescription) }.flatMap { CMAudioFormatDescriptionGetStreamBasicDescription($0)?.pointee.mChannelsPerFrame } ?? 2,
-                AVSampleRateKey: audioTrack.naturalTimeScale > 0 ? Double(audioTrack.naturalTimeScale) : 44_100
+                AVNumberOfChannelsKey: Int(audioChannels),
+                AVSampleRateKey: audioSampleRate
             ])
         if reader.canAdd(videoOut) { reader.add(videoOut) }
         if reader.canAdd(audioOut) { reader.add(audioOut) }
@@ -185,7 +192,8 @@ final class VideoProcessor: ObservableObject {
         }
 
         // Writer
-        let naturalSize = videoTrack.naturalSize
+        let naturalSize = try await videoTrack.load(.naturalSize)
+        let preferredTransform = try await videoTrack.load(.preferredTransform)
         let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
         let writerVideoSettings: [String: Any] = [
             AVVideoCodecKey: AVVideoCodecType.h264,
@@ -194,7 +202,7 @@ final class VideoProcessor: ObservableObject {
         ]
         let videoWriterInput = AVAssetWriterInput(mediaType: .video, outputSettings: writerVideoSettings)
         videoWriterInput.expectsMediaDataInRealTime = false
-        videoWriterInput.transform = videoTrack.preferredTransform
+        videoWriterInput.transform = preferredTransform
 
         let audioWriterInput = AVAssetWriterInput(mediaType: .audio,
             outputSettings: [
@@ -221,7 +229,8 @@ final class VideoProcessor: ObservableObject {
         }
         writer.startSession(atSourceTime: .zero)
 
-        let totalDuration = max(0.001, CMTimeGetSeconds(asset.duration))
+        let totalDurationCM = try await asset.load(.duration)
+        let totalDuration = max(0.001, CMTimeGetSeconds(totalDurationCM))
         let pianoState = PianoState()
         var eventIdx = 0
         let sortedEvents = events.sorted { $0.time < $1.time }
