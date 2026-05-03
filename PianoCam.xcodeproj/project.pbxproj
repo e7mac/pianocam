@@ -15,7 +15,7 @@
 		62424219D7F19D8517DBFC70 /* CameraSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 210ECFA4FD42DEB439333E41 /* CameraSession.swift */; };
 		71FE1B91356EEC428790B5B6 /* FrameCompositor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 877199C972EB5EB8E44140B5 /* FrameCompositor.swift */; };
 		7F1A839EFBE558B2AEEAB5E2 /* CameraPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA7C3418E9E9EDA572E78E03 /* CameraPreviewView.swift */; };
-		835FE1274CE6FF8AAD72CBEE /* PianoCamExtension.systemextension in Embed Dependencies */ = {isa = PBXBuildFile; fileRef = 91F283F8CC9B6DFB3F8B57C5 /* PianoCamExtension.systemextension */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		835FE1274CE6FF8AAD72CBEE /* PianoCamExtension.appex in Embed Dependencies */ = {isa = PBXBuildFile; fileRef = 91F283F8CC9B6DFB3F8B57C5 /* PianoCamExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		8A8131650DB412C37540F06F /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7BBD2AA6A78B0285E06A783 /* SettingsView.swift */; };
 		8C487D8464E0D581589B913A /* PianoState.swift in Sources */ = {isa = PBXBuildFile; fileRef = E281BF25986DAC511FD9B452 /* PianoState.swift */; };
 		9AD474AECD9DFCC5AC805EC3 /* PianoCamExtensionDevice.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE9E8A983238E08CDFF12EA0 /* PianoCamExtensionDevice.swift */; };
@@ -40,10 +40,10 @@
 		30BC386A4A0B44340F5F1573 /* Embed Dependencies */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
-			dstPath = Contents/Library/SystemExtensions;
-			dstSubfolderSpec = 1;
+			dstPath = "";
+			dstSubfolderSpec = 13;
 			files = (
-				835FE1274CE6FF8AAD72CBEE /* PianoCamExtension.systemextension in Embed Dependencies */,
+				835FE1274CE6FF8AAD72CBEE /* PianoCamExtension.appex in Embed Dependencies */,
 			);
 			name = "Embed Dependencies";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -63,7 +63,7 @@
 		832B7B559E425FC6B45F9FCF /* PianoKeyboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PianoKeyboardView.swift; sourceTree = "<group>"; };
 		877199C972EB5EB8E44140B5 /* FrameCompositor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameCompositor.swift; sourceTree = "<group>"; };
 		8C27759B6F7FBFEC8DBE9041 /* ExtensionInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionInstaller.swift; sourceTree = "<group>"; };
-		91F283F8CC9B6DFB3F8B57C5 /* PianoCamExtension.systemextension */ = {isa = PBXFileReference; explicitFileType = "wrapper.system-extension"; includeInIndex = 0; path = PianoCamExtension.systemextension; sourceTree = BUILT_PRODUCTS_DIR; };
+		91F283F8CC9B6DFB3F8B57C5 /* PianoCamExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.system-extension"; includeInIndex = 0; path = PianoCamExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		9F2A29228A6D9ABE6A5A2544 /* CompositedPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompositedPreview.swift; sourceTree = "<group>"; };
 		AA7C3418E9E9EDA572E78E03 /* CameraPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraPreviewView.swift; sourceTree = "<group>"; };
 		B7A786F3539D6385FEE0CA13 /* PianoCamExtensionProviderSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PianoCamExtensionProviderSource.swift; sourceTree = "<group>"; };
@@ -155,7 +155,7 @@
 			isa = PBXGroup;
 			children = (
 				0A5DDC834B8D875C7C8231D4 /* PianoCam.app */,
-				91F283F8CC9B6DFB3F8B57C5 /* PianoCamExtension.systemextension */,
+				91F283F8CC9B6DFB3F8B57C5 /* PianoCamExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -193,7 +193,7 @@
 			packageProductDependencies = (
 			);
 			productName = PianoCamExtension;
-			productReference = 91F283F8CC9B6DFB3F8B57C5 /* PianoCamExtension.systemextension */;
+			productReference = 91F283F8CC9B6DFB3F8B57C5 /* PianoCamExtension.appex */;
 			productType = "com.apple.product-type.system-extension";
 		};
 		8BF43C2621C36715880DB987 /* PianoCam */ = {
@@ -225,11 +225,9 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					066CB445C8CAEB34C84A6947 = {
-						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 					8BF43C2621C36715880DB987 = {
-						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -366,6 +364,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = PianoCam/PianoCam.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = 232HCB982K;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = PianoCam/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -381,7 +380,9 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = PianoCamExtension/PianoCamExtension.entitlements;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = 232HCB982K;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = PianoCamExtension/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -391,8 +392,8 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.mayank.pianocam.extension;
 				PRODUCT_MODULE_NAME = PianoCamExtension;
 				SDKROOT = macosx;
-				SKIP_INSTALL = YES;
-				WRAPPER_EXTENSION = systemextension;
+				SKIP_INSTALL = NO;
+				WRAPPER_EXTENSION = appex;
 			};
 			name = Release;
 		};
@@ -400,7 +401,9 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = PianoCamExtension/PianoCamExtension.entitlements;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = 232HCB982K;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = PianoCamExtension/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -410,8 +413,8 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.mayank.pianocam.extension;
 				PRODUCT_MODULE_NAME = PianoCamExtension;
 				SDKROOT = macosx;
-				SKIP_INSTALL = YES;
-				WRAPPER_EXTENSION = systemextension;
+				SKIP_INSTALL = NO;
+				WRAPPER_EXTENSION = appex;
 			};
 			name = Debug;
 		};
@@ -491,6 +494,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = PianoCam/PianoCam.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = 232HCB982K;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = PianoCam/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
