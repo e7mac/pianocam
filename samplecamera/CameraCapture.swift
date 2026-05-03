@@ -18,46 +18,56 @@ final class CameraCapture: NSObject {
     /// Called on the capture queue with the latest frame.
     var onFrame: ((CVPixelBuffer) -> Void)?
 
+    /// Real (non-virtual) cameras available on this Mac.
+    static var availableDevices: [AVCaptureDevice] {
+        let discovery = AVCaptureDevice.DiscoverySession(
+            deviceTypes: [.builtInWideAngleCamera, .externalUnknown],
+            mediaType: .video,
+            position: .unspecified
+        )
+        return discovery.devices.filter { $0.localizedName != cameraName }
+    }
+
     func start() {
         AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
             guard granted, let self else { return }
-            self.queue.async { self.configure() }
+            self.queue.async { self.configure(device: nil) }
         }
     }
 
-    private func configure() {
+    /// Switch to a specific device. Pass nil to use the first available real camera.
+    func setDevice(_ device: AVCaptureDevice?) {
+        queue.async { self.configure(device: device) }
+    }
+
+    private func configure(device explicit: AVCaptureDevice?) {
         session.beginConfiguration()
         session.sessionPreset = .high
 
-        let device: AVCaptureDevice? = {
-            // Prefer the built-in / external real camera, NOT our virtual one.
-            let discovery = AVCaptureDevice.DiscoverySession(
-                deviceTypes: [.builtInWideAngleCamera, .externalUnknown],
-                mediaType: .video,
-                position: .unspecified
-            )
-            return discovery.devices.first { d in
-                d.localizedName != "Sample Camera"
-            }
-        }()
-        guard let device, let input = try? AVCaptureDeviceInput(device: device) else {
+        if let existing = input {
+            session.removeInput(existing)
+            input = nil
+        }
+
+        let device = explicit ?? Self.availableDevices.first
+        guard let device, let newInput = try? AVCaptureDeviceInput(device: device) else {
             session.commitConfiguration()
             return
         }
-        if session.canAddInput(input) {
-            session.addInput(input)
-            self.input = input
+        if session.canAddInput(newInput) {
+            session.addInput(newInput)
+            self.input = newInput
         }
-        output.videoSettings = [
-            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
-        ]
-        output.alwaysDiscardsLateVideoFrames = true
-        output.setSampleBufferDelegate(self, queue: queue)
-        if session.canAddOutput(output) {
-            session.addOutput(output)
+        if !session.outputs.contains(output) {
+            output.videoSettings = [
+                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
+            ]
+            output.alwaysDiscardsLateVideoFrames = true
+            output.setSampleBufferDelegate(self, queue: queue)
+            if session.canAddOutput(output) { session.addOutput(output) }
         }
         session.commitConfiguration()
-        session.startRunning()
+        if !session.isRunning { session.startRunning() }
     }
 }
 

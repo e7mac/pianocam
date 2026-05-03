@@ -42,7 +42,7 @@ class cameraDeviceSource: NSObject, CMIOExtensionDeviceSource {
     
     private var _whiteStripeIsAscending: Bool = false
     
-    var lastMessage = "Sample Camera for macOS"
+    var lastMessage = "PianoCam"
     
     func myStreamingCounter() -> String {
         return "sc=\(_streamingCounter)"
@@ -80,9 +80,9 @@ class cameraDeviceSource: NSObject, CMIOExtensionDeviceSource {
         _bufferAuxAttributes = [kCVPixelBufferPoolAllocationThresholdKey: 5]
         
         let videoID = UUID()
-        _streamSource = cameraStreamSource(localizedName: "SampleCamera.Video", streamID: videoID, streamFormat: videoStreamFormat, device: device)
+        _streamSource = cameraStreamSource(localizedName: "PianoCam.Video", streamID: videoID, streamFormat: videoStreamFormat, device: device)
         let videoSinkID = UUID()
-        _streamSink = cameraStreamSink(localizedName: "SampleCamera.Video.Sink", streamID: videoSinkID, streamFormat: videoStreamFormat, device: device)
+        _streamSink = cameraStreamSink(localizedName: "PianoCam.Video.Sink", streamID: videoSinkID, streamFormat: videoStreamFormat, device: device)
         do {
             try device.addStream(_streamSource.stream)
             try device.addStream(_streamSink.stream)
@@ -104,7 +104,7 @@ class cameraDeviceSource: NSObject, CMIOExtensionDeviceSource {
         }
         if properties.contains(.deviceModel) {
             //deviceProperties.setPropertyState(CMIOExtensionPropertyState(value: "toto" as NSString), forProperty: .deviceModel)
-            deviceProperties.model = "Sample Camera Model"
+            deviceProperties.model = "PianoCam"
         }
         
         return deviceProperties
@@ -468,7 +468,7 @@ class cameraProviderSource: NSObject, CMIOExtensionProviderSource {
         
         let providerProperties = CMIOExtensionProviderProperties(dictionary: [:])
         if properties.contains(.providerManufacturer) {
-            providerProperties.manufacturer = "Sample Camera Manufacturer"
+            providerProperties.manufacturer = "PianoCam"
         }
         return providerProperties
     }

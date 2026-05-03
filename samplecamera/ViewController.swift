@@ -24,6 +24,9 @@ class ViewController: NSViewController {
     private let frameLock = NSLock()
     private let pianoState = PianoState()
     private let midiInput = MIDIInput()
+    private var cameraPicker: NSPopUpButton!
+    private let previewLayer = AVSampleBufferDisplayLayer()
+    private var previewView: NSView!
     private var readyToEnqueue = false
     private var enqueued = false
     private var _videoDescription: CMFormatDescription!
@@ -237,6 +240,24 @@ class ViewController: NSViewController {
         deactivateCamera()
     }
 
+    private func rebuildCameraMenu() {
+        guard let picker = cameraPicker else { return }
+        picker.removeAllItems()
+        let devices = CameraCapture.availableDevices
+        for d in devices {
+            picker.addItem(withTitle: d.localizedName)
+            picker.lastItem?.representedObject = d
+        }
+        if devices.isEmpty {
+            picker.addItem(withTitle: "No cameras found")
+        }
+    }
+
+    @objc func cameraPicked(_ sender: NSPopUpButton) {
+        guard let device = sender.selectedItem?.representedObject as? AVCaptureDevice else { return }
+        cameraCapture.setDevice(device)
+    }
+
     func registerForDeviceNotifications() {
         NotificationCenter.default.addObserver(forName: NSNotification.Name.AVCaptureDeviceWasConnected, object: nil, queue: nil) { (notif) -> Void in
             // when the user click "activate", we will receive a notification
@@ -267,6 +288,25 @@ class ViewController: NSViewController {
         needToStreamCaption = fakeLabel("need to stream = ???")
         needToStreamCaption.frame = needToStreamCaption.frame.offsetBy(dx: button2.frame.maxX + 16, dy: 4)
         self.view.addSubview(needToStreamCaption)
+
+        cameraPicker = NSPopUpButton(frame: NSRect(x: 0, y: 30, width: 280, height: 24), pullsDown: false)
+        cameraPicker.target = self
+        cameraPicker.action = #selector(cameraPicked(_:))
+        rebuildCameraMenu()
+        self.view.addSubview(cameraPicker)
+
+        // Live preview of the exact composited buffer that's pushed to the
+        // virtual camera, so you can verify look + latency without QuickTime.
+        previewView = NSView(frame: NSRect(x: 0, y: 60,
+                                           width: self.view.bounds.width,
+                                           height: max(120, self.view.bounds.height - 90)))
+        previewView.autoresizingMask = [.width, .height]
+        previewView.wantsLayer = true
+        previewView.layer = CALayer()
+        previewView.layer?.backgroundColor = NSColor.black.cgColor
+        previewLayer.videoGravity = .resizeAspect
+        previewView.layer?.addSublayer(previewLayer)
+        self.view.addSubview(previewView)
 
         self.makeDevicesVisible()
         connectToCamera()
@@ -394,17 +434,61 @@ class ViewController: NSViewController {
         }
     }
     @objc func fireTimer() {
+        let composite = makeCompositeFrame()
+        if let composite { showPreview(composite) }
+
         guard needToStream,
               (enqueued == false || readyToEnqueue == true),
               let queue = self.sinkQueue else { return }
         enqueued = true
         readyToEnqueue = false
-        if let cg = makeCompositeFrame() {
-            self.enqueue(queue, cg)
+        if let composite {
+            self.enqueue(queue, composite)
         } else if let image = image,
                   let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) {
-            // First-frame fallback before the webcam has produced anything.
             self.enqueue(queue, cgImage)
+        }
+    }
+
+    private func showPreview(_ cg: CGImage) {
+        // Wrap the CGImage in a CMSampleBuffer so AVSampleBufferDisplayLayer can render it.
+        let w = cg.width, h = cg.height
+        let attrs = [
+            kCVPixelBufferIOSurfacePropertiesKey as String: [:] as CFDictionary
+        ] as CFDictionary
+        var pb: CVPixelBuffer?
+        guard CVPixelBufferCreate(kCFAllocatorDefault, w, h, kCVPixelFormatType_32BGRA, attrs, &pb) == kCVReturnSuccess,
+              let buffer = pb else { return }
+        CVPixelBufferLockBaseAddress(buffer, [])
+        let cs = CGColorSpaceCreateDeviceRGB()
+        let ctx = CGContext(data: CVPixelBufferGetBaseAddress(buffer),
+                            width: w, height: h,
+                            bitsPerComponent: 8,
+                            bytesPerRow: CVPixelBufferGetBytesPerRow(buffer),
+                            space: cs,
+                            bitmapInfo: CGBitmapInfo.byteOrder32Little.rawValue
+                                      | CGImageAlphaInfo.premultipliedFirst.rawValue)
+        ctx?.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+        CVPixelBufferUnlockBaseAddress(buffer, [])
+
+        var fd: CMFormatDescription?
+        CMVideoFormatDescriptionCreateForImageBuffer(allocator: kCFAllocatorDefault,
+                                                     imageBuffer: buffer,
+                                                     formatDescriptionOut: &fd)
+        guard let fd else { return }
+        var timing = CMSampleTimingInfo(duration: .invalid,
+                                        presentationTimeStamp: CMClockGetTime(CMClockGetHostTimeClock()),
+                                        decodeTimeStamp: .invalid)
+        var sb: CMSampleBuffer?
+        CMSampleBufferCreateReadyWithImageBuffer(allocator: kCFAllocatorDefault,
+                                                 imageBuffer: buffer,
+                                                 formatDescription: fd,
+                                                 sampleTiming: &timing,
+                                                 sampleBufferOut: &sb)
+        if let sb {
+            if previewLayer.requiresFlushToResumeDecoding { previewLayer.flush() }
+            previewLayer.enqueue(sb)
+            previewLayer.frame = previewView.bounds
         }
     }
 

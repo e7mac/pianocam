@@ -6,6 +6,6 @@
 //
 
 let kFrameRate: Int = 30
-let cameraName = "Sample Camera"
+let cameraName = "PianoCam"
 let fixedCamWidth: Int32 = 1280
 let fixedCamHeight: Int32 = 720
