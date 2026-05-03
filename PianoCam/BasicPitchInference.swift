@@ -34,12 +34,17 @@ final class BasicPitchInference {
 
     /// Notes currently considered "on" by the model (set of MIDI numbers).
     private var activeNotes: Set<UInt8> = []
+    /// When each active note was triggered, used to enforce minHoldSeconds.
+    private var noteOnTimes: [UInt8: TimeInterval] = [:]
 
     /// Probabilities at which we accept a note onset / continued note.
     private let onsetThreshold: Float = 0.50
-    private let frameThreshold: Float = 0.30
+    private let frameThreshold: Float = 0.20
     /// Fraction of recent frames that must be "active" for a sustained note.
-    private let sustainedFraction: Float = 0.40
+    private let sustainedFraction: Float = 0.25
+    /// Minimum time (seconds) a note stays lit after onset, regardless of
+    /// whether the model still sees it. Mirrors a piano's natural decay tail.
+    private let minHoldSeconds: TimeInterval = 0.5
 
     init() throws {
         env = try ORTEnv(loggingLevel: .warning)
@@ -84,6 +89,7 @@ final class BasicPitchInference {
     func reset() {
         for note in activeNotes { onEvent?(.noteOff(note: note)) }
         activeNotes.removeAll()
+        noteOnTimes.removeAll()
         ring.removeAll(keepingCapacity: true)
         samplesSinceLastInference = 0
     }
@@ -210,17 +216,23 @@ final class BasicPitchInference {
                 }
             }
 
-            // Emit note-off for notes that left the active set.
+            // Emit note-off only after the minimum hold time has elapsed.
+            let now = Date().timeIntervalSince1970
             let toTurnOff = activeNotes.subtracting(detectedActive)
             for note in toTurnOff {
-                onEvent?(.noteOff(note: note))
-                activeNotes.remove(note)
+                let onTime = noteOnTimes[note] ?? 0
+                if now - onTime >= minHoldSeconds {
+                    onEvent?(.noteOff(note: note))
+                    activeNotes.remove(note)
+                    noteOnTimes.removeValue(forKey: note)
+                }
             }
             // Emit note-on for any note with a fresh strong onset.
             for (note, _) in detectedOnsets {
                 if !activeNotes.contains(note) {
                     onEvent?(.noteOn(note: note, velocity: 100))
                     activeNotes.insert(note)
+                    noteOnTimes[note] = now
                 }
             }
             onStatus?("active=\(activeNotes.count)")
