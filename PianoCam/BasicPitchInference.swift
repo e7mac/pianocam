@@ -36,10 +36,10 @@ final class BasicPitchInference {
     private var activeNotes: Set<UInt8> = []
 
     /// Probabilities at which we accept a note onset / continued note.
-    private let onsetThreshold: Float = 0.50
-    private let frameThreshold: Float = 0.30
+    private let onsetThreshold: Float = 0.65
+    private let frameThreshold: Float = 0.45
     /// Fraction of recent frames that must be "active" for a sustained note.
-    private let sustainedFraction: Float = 0.40
+    private let sustainedFraction: Float = 0.55
 
     init() throws {
         env = try ORTEnv(loggingLevel: .warning)

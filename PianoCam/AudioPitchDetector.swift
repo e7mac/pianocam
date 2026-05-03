@@ -254,7 +254,7 @@ extension AudioPitchDetector: AVCaptureAudioDataOutputSampleBufferDelegate {
     private func process(pitchHz: Double?, rms: Float) {
         let onsetFloor: Float = 0.01
 
-        guard let hz = pitchHz, rms > onsetFloor else {
+        guard let hz = pitchHz, hz.isFinite, hz > 20, rms > onsetFloor else {
             silenceCount += 1
             stabilityCount = 0
             if silenceCount >= silenceFramesUntilOff, let cur = currentNote {
@@ -265,7 +265,9 @@ extension AudioPitchDetector: AVCaptureAudioDataOutputSampleBufferDelegate {
         }
         silenceCount = 0
 
-        let detectedNote = UInt8(clamping: Int(round(69 + 12 * log2(hz / 440))))
+        let raw = 69 + 12 * log2(hz / 440)
+        guard raw.isFinite else { return }
+        let detectedNote = UInt8(clamping: Int(round(raw)))
         // Ignore out-of-range detections.
         guard (21...108).contains(detectedNote) else { return }
 
