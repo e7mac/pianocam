@@ -36,8 +36,10 @@ final class BasicPitchInference {
     private var activeNotes: Set<UInt8> = []
 
     /// Probabilities at which we accept a note onset / continued note.
-    private let onsetThreshold: Float = 0.55
-    private let frameThreshold: Float = 0.40
+    private let onsetThreshold: Float = 0.50
+    private let frameThreshold: Float = 0.30
+    /// Fraction of recent frames that must be "active" for a sustained note.
+    private let sustainedFraction: Float = 0.40
 
     init() throws {
         env = try ORTEnv(loggingLevel: .warning)
@@ -88,6 +90,8 @@ final class BasicPitchInference {
 
     // MARK: - Inference
 
+    private var probedOutputs = false
+
     private func runInference(audio: [Float]) {
         do {
             let shape: [NSNumber] = [1, NSNumber(value: Self.modelWindowSamples), 1]
@@ -99,71 +103,98 @@ final class BasicPitchInference {
             let input = try ORTValue(tensorData: data, elementType: .float, shape: shape)
 
             let inputName = "serving_default_input_2:0"
-            let noteOutputName = "StatefulPartitionedCall:1"
-            let onsetOutputName = "StatefulPartitionedCall:2"
+            let outA = "StatefulPartitionedCall:1"
+            let outB = "StatefulPartitionedCall:2"
 
             let outputs = try session.run(
                 withInputs: [inputName: input],
-                outputNames: Set([noteOutputName, onsetOutputName]),
+                outputNames: Set([outA, outB]),
                 runOptions: nil
             )
 
-            guard let noteValue = outputs[noteOutputName],
-                  let onsetValue = outputs[onsetOutputName] else { return }
+            guard let valA = outputs[outA], let valB = outputs[outB] else { return }
+            let dataA = try valA.tensorData() as Data
+            let dataB = try valB.tensorData() as Data
 
-            let noteData = try noteValue.tensorData() as Data
-            let onsetData = try onsetValue.tensorData() as Data
-
-            // Both tensors are (1, 172, 88) Float32 = 60384 bytes each.
-            let frameCount = 172
-            let pitchCount = 88
-            guard noteData.count == frameCount * pitchCount * MemoryLayout<Float>.size,
-                  onsetData.count == noteData.count else {
-                NSLog("PianoCam basicpitch: unexpected output sizes note=\(noteData.count) onset=\(onsetData.count)")
+            let frameCount = 172, pitchCount = 88
+            guard dataA.count == frameCount * pitchCount * MemoryLayout<Float>.size,
+                  dataB.count == dataA.count else {
+                NSLog("PianoCam basicpitch: unexpected output sizes")
                 return
             }
-            let noteProbs = Self.toFloats(noteData)
-            let onsetProbs = Self.toFloats(onsetData)
+            let probsA = Self.toFloats(dataA)
+            let probsB = Self.toFloats(dataB)
 
-            // Look at the LAST 22 frames (~256 ms of audio) so we react to
-            // recent events; older frames are duplicates from the previous
-            // inference window.
+            // Probe which output is "note" (sustained) vs "onset" (sparse).
+            // Onset peaks are sparse; note remains high for the whole note's
+            // duration. So `note` has a higher mean for a given pitch's time
+            // series than `onset` does. Use mean-of-active-frames as a hint.
+            let aMean = probsA.reduce(0, +) / Float(probsA.count)
+            let bMean = probsB.reduce(0, +) / Float(probsB.count)
+            let noteProbs: [Float]
+            let onsetProbs: [Float]
+            if aMean >= bMean {
+                noteProbs = probsA; onsetProbs = probsB
+            } else {
+                noteProbs = probsB; onsetProbs = probsA
+            }
+            if !probedOutputs {
+                probedOutputs = true
+                NSLog("PianoCam basicpitch: outputs probed — :1 mean=\(String(format: "%.3f", aMean)) :2 mean=\(String(format: "%.3f", bMean)) → \(aMean >= bMean ? ":1=note,:2=onset" : ":1=onset,:2=note")")
+            }
+
+            // Analyze the last ~256 ms (22 frames at 86 fps).
             let tailFrames = 22
             let startFrame = max(0, frameCount - tailFrames)
+            let totalTail = frameCount - startFrame
 
-            // Aggregate: a pitch is "active" if any of the last frames'
-            // note prob exceeds threshold; an "onset" if any of the last
-            // frames' onset prob exceeds the onset threshold.
             var detectedActive: Set<UInt8> = []
-            var detectedOnsets: Set<UInt8> = []
+            var detectedOnsets: [UInt8: Float] = [:]   // note -> peak onset score
             for p in 0..<pitchCount {
-                var maxNote: Float = 0
+                var activeCount = 0
                 var maxOnset: Float = 0
                 for f in startFrame..<frameCount {
                     let i = f * pitchCount + p
-                    if noteProbs[i] > maxNote { maxNote = noteProbs[i] }
+                    if noteProbs[i] > frameThreshold { activeCount += 1 }
                     if onsetProbs[i] > maxOnset { maxOnset = onsetProbs[i] }
                 }
-                let midi = UInt8(21 + p)  // pitch index 0 = MIDI 21 (A0)
-                if maxNote > frameThreshold { detectedActive.insert(midi) }
-                if maxOnset > onsetThreshold { detectedOnsets.insert(midi) }
+                let activeFraction = Float(activeCount) / Float(totalTail)
+                let midi = UInt8(21 + p)
+                if activeFraction >= sustainedFraction {
+                    detectedActive.insert(midi)
+                }
+                if maxOnset >= onsetThreshold && activeFraction >= 0.15 {
+                    detectedOnsets[midi] = maxOnset
+                }
             }
 
-            // Emit note-on for new onsets; note-off for notes that disappeared.
+            // Octave-suppression: if both N and N+12 are detected and one is
+            // much weaker, drop the weaker. Helps with the second-harmonic
+            // false positive that vanilla Basic Pitch sometimes produces.
+            for note in Array(detectedActive) {
+                let upper = note &+ 12
+                guard detectedActive.contains(upper) else { continue }
+                let lowerOnset = detectedOnsets[note] ?? 0
+                let upperOnset = detectedOnsets[upper] ?? 0
+                if upperOnset < lowerOnset * 0.6 {
+                    detectedActive.remove(upper)
+                    detectedOnsets.removeValue(forKey: upper)
+                }
+            }
+
+            // Emit note-off for notes that left the active set.
             let toTurnOff = activeNotes.subtracting(detectedActive)
             for note in toTurnOff {
                 onEvent?(.noteOff(note: note))
                 activeNotes.remove(note)
             }
-            for note in detectedOnsets {
-                if !activeNotes.contains(note) {
+            // Emit note-on for newly onset notes that are also currently active.
+            for (note, _) in detectedOnsets {
+                if !activeNotes.contains(note) && detectedActive.contains(note) {
                     onEvent?(.noteOn(note: note, velocity: 100))
                     activeNotes.insert(note)
                 }
             }
-            // Notes that the frame model says are still active, but that we
-            // somehow lost — leave them; an onset will re-trigger.
-
             onStatus?("active=\(activeNotes.count)")
         } catch {
             NSLog("PianoCam basicpitch: inference failed — \(error)")
