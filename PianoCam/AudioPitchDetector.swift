@@ -2,10 +2,11 @@
 //  AudioPitchDetector.swift
 //  PianoCam
 //
-//  Captures microphone audio and analyzes it for piano pitches in real time.
-//  Stub detector for now: emits a synthetic note-on for the loudest band when
-//  the input exceeds an onset threshold. Will be replaced by Basic Pitch
-//  (CoreML) once the pipeline is wired end-to-end.
+//  Captures microphone audio via AVCaptureSession (so the device is
+//  pickable, unlike AVAudioEngine which uses the system default) and runs
+//  a pitch analyzer in real time. Stub detector for now: emits middle-C
+//  on loud transients to verify the pipeline. Will be replaced by Basic
+//  Pitch (CoreML) once the pipeline is verified end-to-end.
 //
 
 import AVFoundation
@@ -13,7 +14,7 @@ import Accelerate
 import Foundation
 
 @MainActor
-final class AudioPitchDetector: ObservableObject {
+final class AudioPitchDetector: NSObject, ObservableObject {
     enum State: Equatable {
         case idle
         case unauthorized
@@ -21,115 +22,178 @@ final class AudioPitchDetector: ObservableObject {
         case failed(String)
     }
 
-    /// Called on the audio queue with synthetic MIDI events.
+    /// Synthetic MIDI events emitted from analysis.
     var onEvent: ((MIDIEvent) -> Void)?
 
-    /// Lightweight RMS for a UI level meter (0…1).
     @Published private(set) var inputLevel: Float = 0
     @Published private(set) var state: State = .idle
 
-    private let engine = AVAudioEngine()
+    private let session = AVCaptureSession()
     private let analysisQueue = DispatchQueue(label: "pianocam.pitch", qos: .userInitiated)
+    private let captureQueue = DispatchQueue(label: "pianocam.pitch.capture")
+    private var audioInput: AVCaptureDeviceInput?
+    private let audioOutput = AVCaptureAudioDataOutput()
 
-    /// Notes currently considered "on" by the detector. Tracked so we can
-    /// emit clean note-off events when a note disappears.
     private var activeStubNotes: Set<UInt8> = []
     private var lastOnsetTime: TimeInterval = 0
+    private var tapCount = 0
 
-    func start() {
+    static var availableInputs: [AVCaptureDevice] {
+        if #available(macOS 14.0, *) {
+            let s = AVCaptureDevice.DiscoverySession(
+                deviceTypes: [.microphone, .external],
+                mediaType: .audio,
+                position: .unspecified
+            )
+            return s.devices
+        }
+        return AVCaptureDevice.devices(for: .audio)
+    }
+
+    /// Start capture using `device` (or the default if nil).
+    func start(device: AVCaptureDevice? = nil) {
         AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
             DispatchQueue.main.async {
                 guard let self else { return }
                 guard granted else {
+                    NSLog("PianoCam audio: permission denied")
                     self.state = .unauthorized
                     return
                 }
-                self.installTapAndStart()
+                self.configure(device: device)
             }
         }
     }
 
     func stop() {
-        engine.stop()
-        engine.inputNode.removeTap(onBus: 0)
-        for note in activeStubNotes {
-            onEvent?(.noteOff(note: note))
+        session.stopRunning()
+        if let existing = audioInput {
+            session.removeInput(existing)
+            audioInput = nil
         }
+        for note in activeStubNotes { onEvent?(.noteOff(note: note)) }
         activeStubNotes.removeAll()
         state = .idle
+        NSLog("PianoCam audio: stopped")
     }
 
-    private func installTapAndStart() {
-        let input = engine.inputNode
-        // On macOS, the input node's output format is the canonical place to
-        // ask for what's flowing into the rest of the engine.
-        let format = input.outputFormat(forBus: 0)
-        NSLog("PianoCam audio: format channels=\(format.channelCount) sampleRate=\(format.sampleRate)")
-        guard format.channelCount > 0, format.sampleRate > 0 else {
-            state = .failed("Input format unavailable (channels=\(format.channelCount), sr=\(format.sampleRate))")
+    private func configure(device explicit: AVCaptureDevice?) {
+        let device = explicit ?? AVCaptureDevice.default(for: .audio) ?? Self.availableInputs.first
+        guard let device else {
+            NSLog("PianoCam audio: no audio input device found")
+            state = .failed("No audio input device")
             return
         }
+        NSLog("PianoCam audio: using device \(device.localizedName)")
 
-        // 4096 samples ≈ 93 ms at 44.1 kHz / 85 ms at 48 kHz.
-        var tapCount = 0
-        input.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
-            tapCount += 1
-            if tapCount <= 3 {
-                NSLog("PianoCam audio: tap fired #\(tapCount) frames=\(buffer.frameLength)")
-            }
-            self?.analysisQueue.async {
-                self?.analyze(buffer: buffer, sampleRate: format.sampleRate)
+        session.beginConfiguration()
+        if let existing = audioInput {
+            session.removeInput(existing)
+        }
+        guard let input = try? AVCaptureDeviceInput(device: device) else {
+            session.commitConfiguration()
+            NSLog("PianoCam audio: failed to create input for \(device.localizedName)")
+            state = .failed("Couldn't open \(device.localizedName)")
+            return
+        }
+        if session.canAddInput(input) {
+            session.addInput(input)
+            audioInput = input
+        }
+        if !session.outputs.contains(audioOutput) {
+            audioOutput.setSampleBufferDelegate(self, queue: captureQueue)
+            if session.canAddOutput(audioOutput) {
+                session.addOutput(audioOutput)
+            } else {
+                session.commitConfiguration()
+                NSLog("PianoCam audio: cannot add audio output")
+                state = .failed("Cannot add audio output")
+                return
             }
         }
+        session.commitConfiguration()
+        if !session.isRunning { session.startRunning() }
+        tapCount = 0
+        state = .running
+        NSLog("PianoCam audio: capture started running=\(session.isRunning)")
+    }
+}
 
-        engine.prepare()
-        do {
-            try engine.start()
-            state = .running
-            NSLog("PianoCam audio: engine started")
-        } catch {
-            NSLog("PianoCam audio: engine.start failed — \(error)")
-            state = .failed(error.localizedDescription)
+extension AudioPitchDetector: AVCaptureAudioDataOutputSampleBufferDelegate {
+    nonisolated func captureOutput(_ output: AVCaptureOutput,
+                                   didOutput sampleBuffer: CMSampleBuffer,
+                                   from connection: AVCaptureConnection) {
+        let frameCount = CMSampleBufferGetNumSamples(sampleBuffer)
+        guard frameCount > 0 else { return }
+
+        // Pull mono float samples out of the CMSampleBuffer's audio buffer list.
+        var blockBuffer: CMBlockBuffer?
+        var audioBufferList = AudioBufferList()
+        let status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
+            sampleBuffer,
+            bufferListSizeNeededOut: nil,
+            bufferListOut: &audioBufferList,
+            bufferListSize: MemoryLayout<AudioBufferList>.size,
+            blockBufferAllocator: nil,
+            blockBufferMemoryAllocator: nil,
+            flags: kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment,
+            blockBufferOut: &blockBuffer
+        )
+        guard status == noErr else { return }
+        let buf = audioBufferList.mBuffers
+        guard buf.mNumberChannels > 0, let mData = buf.mData else { return }
+
+        let bytesPerSample = MemoryLayout<Float>.size
+        let totalFrames = Int(buf.mDataByteSize) / bytesPerSample / Int(buf.mNumberChannels)
+        let ptr = mData.assumingMemoryBound(to: Float.self)
+
+        analysisQueue.async { [weak self] in
+            self?.analyze(samples: ptr, frames: totalFrames, channels: Int(buf.mNumberChannels))
         }
     }
 
-    // MARK: - Stub analyzer
-
-    /// For now: detect loud transients and emit a single C4 note-on. This
-    /// confirms the audio pipeline is alive end-to-end before we plug in a
-    /// real model. Replaced wholesale by Basic Pitch later.
-    private func analyze(buffer: AVAudioPCMBuffer, sampleRate: Double) {
-        guard let channelData = buffer.floatChannelData?[0] else { return }
-        let frameLength = Int(buffer.frameLength)
-        guard frameLength > 0 else { return }
-
+    private nonisolated func analyze(samples: UnsafePointer<Float>, frames: Int, channels: Int) {
+        // For mono first-channel analysis, skip stride if interleaved.
         var rms: Float = 0
-        vDSP_rmsqv(channelData, 1, &rms, vDSP_Length(frameLength))
+        if channels == 1 {
+            vDSP_rmsqv(samples, 1, &rms, vDSP_Length(frames))
+        } else {
+            // Take the first channel (interleaved).
+            vDSP_rmsqv(samples, channels, &rms, vDSP_Length(frames))
+        }
 
-        // Bump to a usable visual range — typical room mic RMS is ~0.005,
-        // shouting is ~0.1; multiply so the meter actually shows movement.
         let scaled = min(1.0, rms * 30)
         DispatchQueue.main.async { [weak self] in
             self?.inputLevel = scaled
-        }
-        // Log every ~30 frames so we can see live RMS in Console without spam.
-        if Int.random(in: 0..<30) == 0 {
-            NSLog("PianoCam audio: rms=\(String(format: "%.4f", rms)) scaled=\(String(format: "%.2f", scaled))")
+            self?.tapCount += 1
+            if let count = self?.tapCount, count <= 5 {
+                NSLog("PianoCam audio: buffer #\(count) frames=\(frames) ch=\(channels) rms=\(String(format: "%.4f", rms))")
+            }
         }
 
         let onsetThreshold: Float = 0.05
         let now = Date().timeIntervalSince1970
-        let cooldown = 0.18  // seconds between stub note-ons
-        if rms > onsetThreshold && now - lastOnsetTime > cooldown {
-            lastOnsetTime = now
+        if rms > onsetThreshold && now - lastOnsetTimeShared() > 0.18 {
+            setLastOnsetTimeShared(now)
             DispatchQueue.main.async { [weak self] in
                 self?.fireStubNote()
             }
         }
     }
 
+    // Atomic scalar safe to access from the analysis queue without crossing actors.
+    private nonisolated(unsafe) static let onsetLock = NSLock()
+    private nonisolated(unsafe) static var sharedLastOnset: TimeInterval = 0
+    private nonisolated func lastOnsetTimeShared() -> TimeInterval {
+        Self.onsetLock.lock(); defer { Self.onsetLock.unlock() }
+        return Self.sharedLastOnset
+    }
+    private nonisolated func setLastOnsetTimeShared(_ t: TimeInterval) {
+        Self.onsetLock.lock(); Self.sharedLastOnset = t; Self.onsetLock.unlock()
+    }
+
     private func fireStubNote() {
-        let note: UInt8 = 60  // middle C
+        let note: UInt8 = 60
         if activeStubNotes.contains(note) {
             onEvent?(.noteOff(note: note))
             activeStubNotes.remove(note)
@@ -137,8 +201,6 @@ final class AudioPitchDetector: ObservableObject {
         let velocity = UInt8(min(127, max(40, Int(inputLevel * 200))))
         onEvent?(.noteOn(note: note, velocity: velocity))
         activeStubNotes.insert(note)
-
-        // Auto-release after 250 ms so the visual matches a piano-ish envelope.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
             guard let self else { return }
             if self.activeStubNotes.remove(note) != nil {

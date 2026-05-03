@@ -38,6 +38,9 @@ final class HostState: ObservableObject {
     @Published var audioLevel: Float = 0
     @Published var audioStatus: String = "Off"
 
+    @Published var audioInputs: [AVCaptureDevice] = []
+    @Published var selectedAudioInputID: String?
+
     /// Append a line to the rolling debug log.
     func log(_ line: String) {
         statusMessage = line
@@ -52,4 +55,5 @@ struct HostActions {
     var reconnect: () -> Void
     var cameraSelected: (AVCaptureDevice) -> Void
     var audioToggled: (Bool) -> Void
+    var audioInputSelected: (AVCaptureDevice) -> Void
 }

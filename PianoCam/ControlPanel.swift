@@ -114,13 +114,23 @@ struct ControlPanel: View {
                         .foregroundStyle(.secondary)
                     Text(state.audioStatus)
                         .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(state.audioStatus.hasPrefix("Failed") ? .red : .secondary)
                 }
                 HStack(spacing: 8) {
                     Toggle("", isOn: audioBinding)
                         .toggleStyle(.switch)
                         .controlSize(.small)
                         .labelsHidden()
+                    Picker("", selection: audioInputBinding) {
+                        if state.audioInputs.isEmpty {
+                            Text("No mic detected").tag(String?.none)
+                        }
+                        ForEach(state.audioInputs, id: \.uniqueID) { d in
+                            Text(d.localizedName).tag(String?.some(d.uniqueID))
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 200)
                     AudioMeter(level: state.audioLevel)
                         .frame(width: 80, height: 8)
                 }
@@ -168,6 +178,18 @@ struct ControlPanel: View {
         Binding(
             get: { state.audioEnabled },
             set: { actions.audioToggled($0) }
+        )
+    }
+
+    private var audioInputBinding: Binding<String?> {
+        Binding(
+            get: { state.selectedAudioInputID },
+            set: { newID in
+                state.selectedAudioInputID = newID
+                if let id = newID, let d = state.audioInputs.first(where: { $0.uniqueID == id }) {
+                    actions.audioInputSelected(d)
+                }
+            }
         )
     }
 }

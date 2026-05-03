@@ -265,7 +265,8 @@ class ViewController: NSViewController {
                     self?.pianoState.handle(event)
                 }
             }
-            audioDetector.start()
+            let chosen = hostState.audioInputs.first { $0.uniqueID == hostState.selectedAudioInputID }
+            audioDetector.start(device: chosen)
             hostState.audioEnabled = true
             audioObservers = [
                 audioDetector.$state.receive(on: DispatchQueue.main).sink { [weak self] s in
@@ -314,6 +315,9 @@ class ViewController: NSViewController {
         // Seed initial UI state.
         hostState.cameras = CameraCapture.availableDevices
         hostState.selectedCameraID = hostState.cameras.first?.uniqueID
+        hostState.audioInputs = AudioPitchDetector.availableInputs
+        hostState.selectedAudioInputID = AVCaptureDevice.default(for: .audio)?.uniqueID
+            ?? hostState.audioInputs.first?.uniqueID
         hostState.extensionStatus = .inactive
 
         self.makeDevicesVisible()
@@ -347,7 +351,15 @@ class ViewController: NSViewController {
             deactivate: { [weak self] in self?.deactivateCamera() },
             reconnect: { [weak self] in self?.reconnect() },
             cameraSelected: { [weak self] device in self?.cameraCapture.setDevice(device) },
-            audioToggled: { [weak self] on in self?.toggleAudio(on) }
+            audioToggled: { [weak self] on in self?.toggleAudio(on) },
+            audioInputSelected: { [weak self] device in
+                guard let self else { return }
+                self.hostState.selectedAudioInputID = device.uniqueID
+                if self.hostState.audioEnabled {
+                    self.audioDetector.stop()
+                    self.audioDetector.start(device: device)
+                }
+            }
         )
         let panel = ControlPanel(state: hostState, actions: actions, previewLayer: previewLayer)
         let host = NSHostingView(rootView: panel)
