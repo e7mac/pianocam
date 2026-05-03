@@ -40,6 +40,7 @@ final class HostState: ObservableObject {
 
     @Published var audioInputs: [AVCaptureDevice] = []
     @Published var selectedAudioInputID: String?
+    @Published var audioMode: AudioPitchMode = .yin
 
     /// Append a line to the rolling debug log.
     func log(_ line: String) {
@@ -56,4 +57,5 @@ struct HostActions {
     var cameraSelected: (AVCaptureDevice) -> Void
     var audioToggled: (Bool) -> Void
     var audioInputSelected: (AVCaptureDevice) -> Void
+    var audioModeChanged: (AudioPitchMode) -> Void
 }

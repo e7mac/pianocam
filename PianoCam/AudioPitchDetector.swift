@@ -15,6 +15,12 @@ import AVFoundation
 import Accelerate
 import Foundation
 
+enum AudioPitchMode: String, CaseIterable, Identifiable {
+    case yin = "Monophonic (YIN)"
+    case basicPitch = "Polyphonic (Basic Pitch)"
+    var id: String { rawValue }
+}
+
 @MainActor
 final class AudioPitchDetector: NSObject, ObservableObject {
     enum State: Equatable {
@@ -28,6 +34,11 @@ final class AudioPitchDetector: NSObject, ObservableObject {
 
     @Published private(set) var inputLevel: Float = 0
     @Published private(set) var state: State = .idle
+
+    @Published var mode: AudioPitchMode = .yin {
+        didSet { handleModeChange(from: oldValue) }
+    }
+    private var basicPitch: BasicPitchInference?
 
     private let session = AVCaptureSession()
     private let captureQueue = DispatchQueue(label: "pianocam.audio.capture")
@@ -74,8 +85,33 @@ final class AudioPitchDetector: NSObject, ObservableObject {
         }
     }
 
+    private func handleModeChange(from previous: AudioPitchMode) {
+        guard previous != mode else { return }
+        // Drop any held YIN note when moving to Basic Pitch (and vice versa).
+        if let cur = currentNote {
+            onEvent?(.noteOff(note: cur))
+            currentNote = nil
+        }
+        basicPitch?.reset()
+
+        if mode == .basicPitch && basicPitch == nil {
+            do {
+                let bp = try BasicPitchInference()
+                bp.onEvent = { [weak self] event in
+                    DispatchQueue.main.async { self?.onEvent?(event) }
+                }
+                basicPitch = bp
+            } catch {
+                NSLog("PianoCam: Basic Pitch unavailable — \(error.localizedDescription)")
+                state = .failed("Basic Pitch unavailable: \(error.localizedDescription)")
+                mode = .yin
+            }
+        }
+    }
+
     func stop() {
         session.stopRunning()
+        basicPitch?.reset()
         if let existing = audioInput {
             session.removeInput(existing)
             audioInput = nil
@@ -180,6 +216,12 @@ extension AudioPitchDetector: AVCaptureAudioDataOutputSampleBufferDelegate {
 
     private func appendAndAnalyze(mono: [Float], sampleRate sr: Double) {
         sampleRate = sr
+
+        // Always feed Basic Pitch first when polyphonic mode is on.
+        if mode == .basicPitch, let bp = basicPitch {
+            bp.ingest(mono, sampleRate: sr)
+        }
+
         ringBuffer.append(contentsOf: mono)
         // Keep the buffer bounded.
         let maxSize = windowLength * 2
@@ -198,6 +240,10 @@ extension AudioPitchDetector: AVCaptureAudioDataOutputSampleBufferDelegate {
         guard samplesSinceLastAnalysis >= analysisStride,
               ringBuffer.count >= windowLength else { return }
         samplesSinceLastAnalysis = 0
+
+        // YIN runs only in monophonic mode; Basic Pitch handles polyphonic
+        // events via its own ingestion path.
+        guard mode == .yin else { return }
 
         let window = Array(ringBuffer.suffix(windowLength))
         let detectedHz = Self.yin(window: window, sampleRate: sr)

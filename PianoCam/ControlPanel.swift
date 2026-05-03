@@ -130,9 +130,16 @@ struct ControlPanel: View {
                         }
                     }
                     .labelsHidden()
-                    .frame(width: 200)
+                    .frame(width: 180)
+                    Picker("", selection: audioModeBinding) {
+                        ForEach(AudioPitchMode.allCases) { m in
+                            Text(m.rawValue).tag(m)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 220)
                     AudioMeter(level: state.audioLevel)
-                        .frame(width: 80, height: 8)
+                        .frame(width: 60, height: 8)
                 }
             }
 
@@ -190,6 +197,13 @@ struct ControlPanel: View {
                     actions.audioInputSelected(d)
                 }
             }
+        )
+    }
+
+    private var audioModeBinding: Binding<AudioPitchMode> {
+        Binding(
+            get: { state.audioMode },
+            set: { actions.audioModeChanged($0) }
         )
     }
 }

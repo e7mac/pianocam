@@ -359,6 +359,11 @@ class ViewController: NSViewController {
                     self.audioDetector.stop()
                     self.audioDetector.start(device: device)
                 }
+            },
+            audioModeChanged: { [weak self] mode in
+                guard let self else { return }
+                self.hostState.audioMode = mode
+                self.audioDetector.mode = mode
             }
         )
         let panel = ControlPanel(state: hostState, actions: actions, previewLayer: previewLayer)
