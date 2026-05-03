@@ -151,6 +151,8 @@ final class VocalIsolator {
 
     // MARK: - Chunk processing (STFT → model → iSTFT)
 
+    private var loggedStrides = false
+
     /// Run one `chunkSize`-sample chunk through the model and return the
     /// instrumental output of the same length.
     private func processChunk(_ chunk: [Float]) -> [Float] {
@@ -163,9 +165,17 @@ final class VocalIsolator {
             dataType: .float32
         ) else { return [Float](repeating: 0, count: chunkSize) }
 
+        // CoreML may pad strides for ANE-friendly layouts — read them rather
+        // than assuming contiguous. Strides are in elements, not bytes.
+        let inStrides = inputArr.strides.map { $0.intValue }
+        let inCStride = inStrides[1]
+        let inBStride = inStrides[2]
+        let inFStride = inStrides[3]
         let inPtr = inputArr.dataPointer.bindMemory(to: Float.self, capacity: inputArr.count)
-        // Layout (row-major): channel-major. Strides:
-        let cStride = dimF * segmentSize
+        if !loggedStrides {
+            NSLog("VocalIsolator: input shape=\(inputArr.shape) strides=\(inputArr.strides) count=\(inputArr.count)")
+        }
+
         for c in 0..<4 {
             let src: [Float]
             switch c {
@@ -173,15 +183,25 @@ final class VocalIsolator {
             case 1, 3: src = imagLR    // L_imag, R_imag
             default: continue
             }
-            // STFT output is laid out [bin][frame] row-major; same as model.
-            let base = c * cStride
-            // Only the first `dimF` bins go to the model.
-            for b in 0..<dimF {
-                let srcOff = b * segmentSize
-                let dstOff = base + b * segmentSize
-                src.withUnsafeBufferPointer { sp in
-                    let sptr = sp.baseAddress!.advanced(by: srcOff)
-                    inPtr.advanced(by: dstOff).update(from: sptr, count: segmentSize)
+            let cBase = c * inCStride
+            // STFT output is laid out [bin * nFrames + frame] row-major.
+            // If the model's input has stride 1 on the time axis we can blast
+            // contiguous bin-rows directly; otherwise fall back to a per-frame
+            // copy with the right stride.
+            if inFStride == 1 {
+                for b in 0..<dimF {
+                    let srcOff = b * segmentSize
+                    let dstOff = cBase + b * inBStride
+                    src.withUnsafeBufferPointer { sp in
+                        let sptr = sp.baseAddress!.advanced(by: srcOff)
+                        inPtr.advanced(by: dstOff).update(from: sptr, count: segmentSize)
+                    }
+                }
+            } else {
+                for b in 0..<dimF {
+                    for f in 0..<segmentSize {
+                        inPtr[cBase + b * inBStride + f * inFStride] = src[b * segmentSize + f]
+                    }
                 }
             }
         }
@@ -192,23 +212,30 @@ final class VocalIsolator {
             return [Float](repeating: 0, count: chunkSize)
         }
 
-        // Unpack output → real/imag arrays sized [n_bins, n_frames]. Pad bins
-        // dimF..n_bins-1 with zeros (model only outputs up to dimF).
+        let outStrides = outArr.strides.map { $0.intValue }
+        let outCStride = outStrides[1]
+        let outBStride = outStrides[2]
+        let outFStride = outStrides[3]
+        let outPtr = outArr.dataPointer.bindMemory(to: Float.self, capacity: outArr.count)
+        if !loggedStrides {
+            NSLog("VocalIsolator: output shape=\(outArr.shape) strides=\(outArr.strides) count=\(outArr.count)")
+            loggedStrides = true
+        }
+
+        // Unpack output → real/imag arrays sized [n_bins, n_frames]. Bins
+        // dimF..n_bins-1 stay zero (model only outputs up to dimF).
         var outRealLR = [Float](repeating: 0, count: nBins * segmentSize)
         var outImagLR = [Float](repeating: 0, count: nBins * segmentSize)
-        let outPtr = outArr.dataPointer.bindMemory(to: Float.self, capacity: outArr.count)
-        // We average L and R (since input was mono, model output should be ~symmetric).
         for f in 0..<segmentSize {
             for b in 0..<dimF {
-                let lr = outPtr[0 * cStride + b * segmentSize + f]
-                let li = outPtr[1 * cStride + b * segmentSize + f]
-                let rr = outPtr[2 * cStride + b * segmentSize + f]
-                let ri = outPtr[3 * cStride + b * segmentSize + f]
+                let lr = outPtr[0 * outCStride + b * outBStride + f * outFStride]
+                let li = outPtr[1 * outCStride + b * outBStride + f * outFStride]
+                let rr = outPtr[2 * outCStride + b * outBStride + f * outFStride]
+                let ri = outPtr[3 * outCStride + b * outBStride + f * outFStride]
                 outRealLR[b * segmentSize + f] = (lr + rr) * 0.5 * compensate
                 outImagLR[b * segmentSize + f] = (li + ri) * 0.5 * compensate
             }
         }
-        // Bins dimF..n_bins-1 stay zero (model didn't predict them).
 
         return istft(real: outRealLR, imag: outImagLR)
     }
