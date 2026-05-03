@@ -169,19 +169,26 @@ class ViewController: NSViewController {
     }
 
     func getDevice(name: String) -> AVCaptureDevice? {
-        print("getDevice name=",name)
-        var devices: [AVCaptureDevice]?
-        if #available(macOS 10.15, *) {
-            let discoverySession = AVCaptureDevice.DiscoverySession(deviceTypes: [.externalUnknown],
-                                                                    mediaType: .video,
-                                                                    position: .unspecified)
-            devices = discoverySession.devices
-        } else {
-            // Fallback on earlier versions
-            devices = AVCaptureDevice.devices(for: .video)
+        print("getDevice name=", name)
+        // Cover modern + legacy device-type names, and fall back to the
+        // (deprecated) all-video API which lists virtual cameras regardless.
+        var types: [AVCaptureDevice.DeviceType] = [.builtInWideAngleCamera, .externalUnknown]
+        if #available(macOS 14.0, *) {
+            types.append(.external)
+            types.append(.continuityCamera)
         }
-        guard let devices = devices else { return nil }
-        return devices.first { $0.localizedName == name}
+        let discovery = AVCaptureDevice.DiscoverySession(deviceTypes: types,
+                                                         mediaType: .video,
+                                                         position: .unspecified)
+        var devices: [AVCaptureDevice] = discovery.devices
+        // Fallback for completeness — picks up virtual cameras that
+        // discovery sometimes misses.
+        let extra = AVCaptureDevice.devices(for: .video)
+        for d in extra where !devices.contains(where: { $0.uniqueID == d.uniqueID }) {
+            devices.append(d)
+        }
+        print("  candidates: \(devices.map { $0.localizedName })")
+        return devices.first { $0.localizedName == name }
     }
 
     func getCMIODevice(uid: String) -> CMIOObjectID? {
@@ -240,6 +247,14 @@ class ViewController: NSViewController {
         deactivateCamera()
     }
 
+    @objc func reconnect(_ sender: Any? = nil) {
+        sourceStream = nil
+        sinkStream = nil
+        sinkQueue = nil
+        showMessage("retrying connection…")
+        connectToCamera()
+    }
+
     private func rebuildCameraMenu() {
         guard let picker = cameraPicker else { return }
         picker.removeAllItems()
@@ -278,6 +293,10 @@ class ViewController: NSViewController {
         let button2 = NSButton(title: "deactivate", target: self, action: #selector(deactivate(_:)))
         self.view.addSubview(button2)
         button2.frame = CGRect(x: 120, y: 0, width: button2.frame.width, height: button.frame.height)
+
+        let button3 = NSButton(title: "reconnect", target: self, action: #selector(reconnect(_:)))
+        self.view.addSubview(button3)
+        button3.frame = CGRect(x: button2.frame.maxX + 8, y: 0, width: button3.frame.width, height: button.frame.height)
 
         debugCaption = fakeLabel("")
         debugCaption.isEditable = false
