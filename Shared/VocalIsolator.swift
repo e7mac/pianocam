@@ -35,6 +35,9 @@ final class VocalIsolator {
     private let model: MLModel
     private let inputName: String
     private let outputName: String
+    /// Reused input array — same shape every chunk, no point reallocating.
+    private let inputArr: MLMultiArray
+    private var chunkCount: Int = 0
 
     private let window: [Float]     // Hann window, length n_fft
     /// Forward and inverse DFT setups. We use the complex-DFT API (vDSP_DFT_zop)
@@ -77,6 +80,11 @@ final class VocalIsolator {
         self.chunkSize = hopLength * (segmentSize - 1)
         self.genSize = chunkSize - 2 * trim
         self.nBins = nFFT / 2 + 1
+
+        self.inputArr = try MLMultiArray(
+            shape: [1, 4, NSNumber(value: dimF), NSNumber(value: segmentSize)],
+            dataType: .float32
+        )
 
         // Periodic Hann window: w[n] = 0.5 * (1 - cos(2π·n / N)). This matches
         // torch.hann_window(periodic=True), which is what the model was trained
@@ -154,17 +162,21 @@ final class VocalIsolator {
     private var loggedStrides = false
 
     /// Run one `chunkSize`-sample chunk through the model and return the
-    /// instrumental output of the same length.
+    /// instrumental output of the same length. Wrapped in autoreleasepool
+    /// because the prediction returns Obj-C autoreleased objects (output
+    /// MLMultiArray, FeatureProvider) that otherwise pile up across
+    /// chunks and OOM the process.
     private func processChunk(_ chunk: [Float]) -> [Float] {
+        autoreleasepool {
+            chunkCount += 1
+            return processChunkInner(chunk)
+        }
+    }
+
+    private func processChunkInner(_ chunk: [Float]) -> [Float] {
         // STFT → real/imag arrays of size [n_bins, n_frames].
         let (realLR, imagLR) = stft(chunk)
-        // Pack into [1, 4, dimF, segmentSize] = L_real, L_imag, R_real, R_imag.
-        // We feed the same mono signal to both L and R (model is stereo).
-        guard let inputArr = try? MLMultiArray(
-            shape: [1, 4, NSNumber(value: dimF), NSNumber(value: segmentSize)],
-            dataType: .float32
-        ) else { return [Float](repeating: 0, count: chunkSize) }
-
+        // Reuse the input array across chunks — same shape every time.
         // CoreML may pad strides for ANE-friendly layouts — read them rather
         // than assuming contiguous. Strides are in elements, not bytes.
         let inStrides = inputArr.strides.map { $0.intValue }
@@ -174,6 +186,11 @@ final class VocalIsolator {
         let inPtr = inputArr.dataPointer.bindMemory(to: Float.self, capacity: inputArr.count)
         if !loggedStrides {
             NSLog("VocalIsolator: input shape=\(inputArr.shape) strides=\(inputArr.strides) count=\(inputArr.count)")
+        }
+        // Periodic per-chunk progress log so we can see exactly which chunk
+        // is being processed if there's a crash.
+        if chunkCount <= 3 || chunkCount % 10 == 0 {
+            NSLog("VocalIsolator: chunk #\(chunkCount)")
         }
 
         for c in 0..<4 {
