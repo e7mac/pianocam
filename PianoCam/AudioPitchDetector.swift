@@ -35,10 +35,15 @@ final class AudioPitchDetector: NSObject, ObservableObject {
     @Published private(set) var inputLevel: Float = 0
     @Published private(set) var state: State = .idle
 
-    @Published var mode: AudioPitchMode = .yin {
+    @Published var mode: AudioPitchMode = .basicPitch {
         didSet { handleModeChange(from: oldValue) }
     }
     private var basicPitch: BasicPitchInference?
+    /// Live tunables that the SwiftUI panel mutates. Forwarded to the active
+    /// `BasicPitchInference` instance.
+    var basicPitchSettings = BasicPitchInference.Settings() {
+        didSet { basicPitch?.settings = basicPitchSettings }
+    }
 
     private let session = AVCaptureSession()
     private let captureQueue = DispatchQueue(label: "pianocam.audio.capture")
@@ -97,6 +102,7 @@ final class AudioPitchDetector: NSObject, ObservableObject {
         if mode == .basicPitch && basicPitch == nil {
             do {
                 let bp = try BasicPitchInference()
+                bp.settings = basicPitchSettings
                 bp.onEvent = { [weak self] event in
                     DispatchQueue.main.async { self?.onEvent?(event) }
                 }

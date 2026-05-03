@@ -20,12 +20,73 @@ struct ControlPanel: View {
             header
             Divider()
             controlsRow
+            if state.audioMode == .basicPitch && state.audioEnabled {
+                Divider()
+                basicPitchSettings
+            }
             Divider()
             PreviewLayerView(layer: previewLayer)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color.black)
         }
         .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private var basicPitchSettings: some View {
+        DisclosureGroup {
+            VStack(alignment: .leading, spacing: 6) {
+                settingRow("Onset threshold",
+                           value: $state.bpOnsetThreshold,
+                           range: 0.10 ... 0.95,
+                           help: "Probability needed for a strong note attack to register. Higher = fewer false positives, but quiet notes may be missed.")
+                settingRow("Sustained note threshold",
+                           value: $state.bpFrameThreshold,
+                           range: 0.05 ... 0.80,
+                           help: "Per-frame probability above which the note is considered still ringing.")
+                settingRow("Sustained note fraction",
+                           value: $state.bpSustainedFraction,
+                           range: 0.05 ... 0.80,
+                           help: "Fraction of recent frames the note must be active to keep the key lit.")
+                settingRow("Minimum hold (sec)",
+                           value: minHoldFloatBinding,
+                           range: 0.0 ... 2.0,
+                           help: "Each note stays lit for at least this long after detection, regardless of model output.")
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+        } label: {
+            Text("Basic Pitch settings")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 4)
+    }
+
+    private func settingRow(_ title: String,
+                            value: Binding<Float>,
+                            range: ClosedRange<Float>,
+                            help: String) -> some View {
+        HStack(spacing: 12) {
+            Text(title)
+                .font(.system(size: 11))
+                .frame(width: 180, alignment: .leading)
+            Slider(value: value, in: range)
+                .controlSize(.small)
+                .frame(maxWidth: 320)
+            Text(String(format: "%.2f", value.wrappedValue))
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .frame(width: 40, alignment: .trailing)
+        }
+        .help(help)
+    }
+
+    private var minHoldFloatBinding: Binding<Float> {
+        Binding(
+            get: { Float(state.bpMinHoldSeconds) },
+            set: { state.bpMinHoldSeconds = Double($0) }
+        )
     }
 
     private var header: some View {

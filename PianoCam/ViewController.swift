@@ -257,6 +257,7 @@ class ViewController: NSViewController {
     }
 
     private var audioObservers: [AnyCancellable] = []
+    private var bpSettingsObservers: [AnyCancellable] = []
 
     private func toggleAudio(_ on: Bool) {
         if on {
@@ -334,6 +335,22 @@ class ViewController: NSViewController {
         midiInput.onEvent = { [weak self] event in
             self?.pianoState.handle(event)
         }
+
+        // Push UI-tuned Basic Pitch settings into the detector live.
+        bpSettingsObservers = [
+            hostState.$bpOnsetThreshold.sink { [weak self] v in
+                self?.audioDetector.basicPitchSettings.onsetThreshold = v
+            },
+            hostState.$bpFrameThreshold.sink { [weak self] v in
+                self?.audioDetector.basicPitchSettings.frameThreshold = v
+            },
+            hostState.$bpSustainedFraction.sink { [weak self] v in
+                self?.audioDetector.basicPitchSettings.sustainedFraction = v
+            },
+            hostState.$bpMinHoldSeconds.sink { [weak self] v in
+                self?.audioDetector.basicPitchSettings.minHoldSeconds = v
+            }
+        ]
         midiInput.onSourcesChanged = { [weak self] names in
             self?.hostState.midiSources = names
         }

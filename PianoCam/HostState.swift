@@ -40,7 +40,13 @@ final class HostState: ObservableObject {
 
     @Published var audioInputs: [AVCaptureDevice] = []
     @Published var selectedAudioInputID: String?
-    @Published var audioMode: AudioPitchMode = .yin
+    @Published var audioMode: AudioPitchMode = .basicPitch
+
+    // Basic Pitch tunables, exposed in the UI.
+    @Published var bpOnsetThreshold: Float = 0.50
+    @Published var bpFrameThreshold: Float = 0.20
+    @Published var bpSustainedFraction: Float = 0.25
+    @Published var bpMinHoldSeconds: Double = 0.5
 
     /// Append a line to the rolling debug log.
     func log(_ line: String) {

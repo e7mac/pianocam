@@ -37,14 +37,16 @@ final class BasicPitchInference {
     /// When each active note was triggered, used to enforce minHoldSeconds.
     private var noteOnTimes: [UInt8: TimeInterval] = [:]
 
-    /// Probabilities at which we accept a note onset / continued note.
-    private let onsetThreshold: Float = 0.50
-    private let frameThreshold: Float = 0.20
-    /// Fraction of recent frames that must be "active" for a sustained note.
-    private let sustainedFraction: Float = 0.25
-    /// Minimum time (seconds) a note stays lit after onset, regardless of
-    /// whether the model still sees it. Mirrors a piano's natural decay tail.
-    private let minHoldSeconds: TimeInterval = 0.5
+    struct Settings {
+        var onsetThreshold: Float = 0.50
+        var frameThreshold: Float = 0.20
+        var sustainedFraction: Float = 0.25
+        var minHoldSeconds: TimeInterval = 0.5
+    }
+
+    /// Live-updatable detection settings — mutated from the main thread,
+    /// read by the inference thread. Atomic-ish (Float/Double assignments).
+    var settings = Settings()
 
     init() throws {
         env = try ORTEnv(loggingLevel: .warning)
@@ -185,19 +187,16 @@ final class BasicPitchInference {
                 var maxOnset: Float = 0
                 for f in startFrame..<frameCount {
                     let i = f * pitchCount + p
-                    if noteProbs[i] > frameThreshold { activeCount += 1 }
+                    if noteProbs[i] > settings.frameThreshold { activeCount += 1 }
                     if onsetProbs[i] > maxOnset { maxOnset = onsetProbs[i] }
                 }
                 let activeFraction = Float(activeCount) / Float(totalTail)
                 let midi = UInt8(21 + p)
-                // A note is "active" (kept lit) if either:
-                //   • frame probability is sustained, OR
-                //   • a strong onset just happened (so the note is freshly struck).
-                if activeFraction >= sustainedFraction || maxOnset >= onsetThreshold {
+                if activeFraction >= settings.sustainedFraction
+                    || maxOnset >= settings.onsetThreshold {
                     detectedActive.insert(midi)
                 }
-                // Only fire note-on for clearly-onset notes.
-                if maxOnset >= onsetThreshold {
+                if maxOnset >= settings.onsetThreshold {
                     detectedOnsets[midi] = maxOnset
                 }
             }
@@ -221,7 +220,7 @@ final class BasicPitchInference {
             let toTurnOff = activeNotes.subtracting(detectedActive)
             for note in toTurnOff {
                 let onTime = noteOnTimes[note] ?? 0
-                if now - onTime >= minHoldSeconds {
+                if now - onTime >= settings.minHoldSeconds {
                     onEvent?(.noteOff(note: note))
                     activeNotes.remove(note)
                     noteOnTimes.removeValue(forKey: note)
