@@ -51,6 +51,10 @@ struct ControlPanel: View {
                            value: minHoldFloatBinding,
                            range: 0.0 ... 2.0,
                            help: "Each note stays lit for at least this long after detection, regardless of model output.")
+                Toggle("Speech rejection (experimental)", isOn: $state.vadEnabled)
+                    .toggleStyle(.checkbox)
+                    .controlSize(.small)
+                    .help("Zeros out audio that looks speech-like before Basic Pitch sees it. Helps when talking near the mic; may dim quiet piano too.")
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)

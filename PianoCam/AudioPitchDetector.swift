@@ -44,6 +44,8 @@ final class AudioPitchDetector: NSObject, ObservableObject {
     var basicPitchSettings = BasicPitchInference.Settings() {
         didSet { basicPitch?.settings = basicPitchSettings }
     }
+    /// Experiment: gate audio when speech-like content is detected.
+    var vadEnabled: Bool = false
 
     private let session = AVCaptureSession()
     private let captureQueue = DispatchQueue(label: "pianocam.audio.capture")
@@ -223,9 +225,17 @@ extension AudioPitchDetector: AVCaptureAudioDataOutputSampleBufferDelegate {
     private func appendAndAnalyze(mono: [Float], sampleRate sr: Double) {
         sampleRate = sr
 
-        // Always feed Basic Pitch first when polyphonic mode is on.
+        // Optional speech gate: zero out samples that look speech-like before
+        // feeding Basic Pitch.
+        let bpInput: [Float]
+        if vadEnabled, VoiceActivityDetector.isSpeech(mono, sampleRate: sr) {
+            bpInput = [Float](repeating: 0, count: mono.count)
+        } else {
+            bpInput = mono
+        }
+
         if mode == .basicPitch, let bp = basicPitch {
-            bp.ingest(mono, sampleRate: sr)
+            bp.ingest(bpInput, sampleRate: sr)
         }
 
         ringBuffer.append(contentsOf: mono)

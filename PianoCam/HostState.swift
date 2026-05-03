@@ -47,6 +47,7 @@ final class HostState: ObservableObject {
     @Published var bpFrameThreshold: Float = 0.20
     @Published var bpSustainedFraction: Float = 0.25
     @Published var bpMinHoldSeconds: Double = 0.5
+    @Published var vadEnabled: Bool = false
 
     /// Append a line to the rolling debug log.
     func log(_ line: String) {

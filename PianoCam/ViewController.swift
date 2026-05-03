@@ -349,6 +349,9 @@ class ViewController: NSViewController {
             },
             hostState.$bpMinHoldSeconds.sink { [weak self] v in
                 self?.audioDetector.basicPitchSettings.minHoldSeconds = v
+            },
+            hostState.$vadEnabled.sink { [weak self] v in
+                self?.audioDetector.vadEnabled = v
             }
         ]
         midiInput.onSourcesChanged = { [weak self] names in
