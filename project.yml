@@ -61,6 +61,7 @@ targets:
     entitlements:
       path: PianoCamExtension/PianoCamExtension.entitlements
       properties:
+        com.apple.security.app-sandbox: true
         com.apple.security.application-groups:
           - $(TeamIdentifierPrefix)group.com.mayank.pianocam
     info:
@@ -72,9 +73,6 @@ targets:
         NSHumanReadableCopyright: MIT License
         CMIOExtension:
           CMIOExtensionMachServiceName: $(TeamIdentifierPrefix)com.mayank.pianocam.extension
-        NSExtension:
-          NSExtensionPointIdentifier: com.apple.cmio.extension-provider
-          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).PianoCamExtensionProviderSource
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.mayank.pianocam.extension

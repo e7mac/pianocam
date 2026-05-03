@@ -1,14 +1,9 @@
 import Foundation
 import CoreMediaIO
 
-@objc(PianoCamExtensionProviderSource)
 final class PianoCamExtensionProviderSource: NSObject, CMIOExtensionProviderSource {
     private(set) var provider: CMIOExtensionProvider!
     private var deviceSource: PianoCamExtensionDevice!
-
-    override convenience init() {
-        self.init(clientQueue: nil)
-    }
 
     init(clientQueue: DispatchQueue?) {
         super.init()

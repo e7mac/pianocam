@@ -27,13 +27,6 @@
 	</dict>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
-	<key>NSExtension</key>
-	<dict>
-		<key>NSExtensionPointIdentifier</key>
-		<string>com.apple.cmio.extension-provider</string>
-		<key>NSExtensionPrincipalClass</key>
-		<string>$(PRODUCT_MODULE_NAME).PianoCamExtensionProviderSource</string>
-	</dict>
 	<key>NSHumanReadableCopyright</key>
 	<string>MIT License</string>
 </dict>
