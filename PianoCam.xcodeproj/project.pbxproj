@@ -17,8 +17,6 @@
 		6BB6B2CDCDABBABDE5518FEC /* BasicPitch.mlpackage in Resources */ = {isa = PBXBuildFile; fileRef = 01260C45F190FD778854DE2B /* BasicPitch.mlpackage */; };
 		89F73DA6AA0E84FF5E49D704 /* MIDIInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = A600A846F6B8348B5121964A /* MIDIInput.swift */; };
 		9CA655AE16A834084FFD9A3F /* VideoProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43D9FC8B733C2EDA611F0D57 /* VideoProcessor.swift */; };
-		A8634B9A2FA7DD5300177FBA /* onnxruntime in Frameworks */ = {isa = PBXBuildFile; productRef = A8634B992FA7DD5300177FBA /* onnxruntime */; };
-		A8634B9D2FA7DD8300177FBA /* BasicPitch.onnx in Resources */ = {isa = PBXBuildFile; fileRef = A8634B9B2FA7DD8300177FBA /* BasicPitch.onnx */; };
 		ADCB846C6C9A98B174428CC0 /* BasicPitch.mlpackage in Resources */ = {isa = PBXBuildFile; fileRef = 01260C45F190FD778854DE2B /* BasicPitch.mlpackage */; };
 		D265D9D0214945C418D72677 /* VoiceActivityDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 296FF0EED37A6CFB44FDBBF9 /* VoiceActivityDetector.swift */; };
 		D99EACCED011E0A4135DBBBA /* BasicPitchModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9618EB103827DEB3B45CBD1D /* BasicPitchModel.swift */; };
@@ -69,7 +67,6 @@
 		80E46B18EDE87317291CD818 /* CameraCapture.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CameraCapture.swift; sourceTree = "<group>"; };
 		9618EB103827DEB3B45CBD1D /* BasicPitchModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BasicPitchModel.swift; sourceTree = "<group>"; };
 		A600A846F6B8348B5121964A /* MIDIInput.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MIDIInput.swift; sourceTree = "<group>"; };
-		A8634B9B2FA7DD8300177FBA /* BasicPitch.onnx */ = {isa = PBXFileReference; lastKnownFileType = file; path = BasicPitch.onnx; sourceTree = "<group>"; };
 		D393D4C9DA1AD372D102537C /* AudioPitchDetector.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AudioPitchDetector.swift; sourceTree = "<group>"; };
 		DB15F4627C804220285EE490 /* PianoState.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PianoState.swift; sourceTree = "<group>"; };
 		F137BDA3E7EC8F9B9B3963E0 /* HostState.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HostState.swift; sourceTree = "<group>"; };
@@ -92,7 +89,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A8634B9A2FA7DD5300177FBA /* onnxruntime in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -119,7 +115,6 @@
 		A8634B9C2FA7DD8300177FBA /* Models */ = {
 			isa = PBXGroup;
 			children = (
-				A8634B9B2FA7DD8300177FBA /* BasicPitch.onnx */,
 				01260C45F190FD778854DE2B /* BasicPitch.mlpackage */,
 			);
 			path = Models;
@@ -243,9 +238,6 @@
 				Base,
 			);
 			mainGroup = F990A85C286F663F00159819;
-			packageReferences = (
-				A8634B982FA7DD5300177FBA /* XCRemoteSwiftPackageReference "onnxruntime-swift-package-manager" */,
-			);
 			productRefGroup = F990A866286F663F00159819 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -263,7 +255,6 @@
 			files = (
 				F990A86D286F664500159819 /* Assets.xcassets in Resources */,
 				F990A870286F664500159819 /* Main.storyboard in Resources */,
-				A8634B9D2FA7DD8300177FBA /* BasicPitch.onnx in Resources */,
 				ADCB846C6C9A98B174428CC0 /* BasicPitch.mlpackage in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -592,25 +583,6 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
-
-/* Begin XCRemoteSwiftPackageReference section */
-		A8634B982FA7DD5300177FBA /* XCRemoteSwiftPackageReference "onnxruntime-swift-package-manager" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/microsoft/onnxruntime-swift-package-manager";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 1.24.2;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		A8634B992FA7DD5300177FBA /* onnxruntime */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = A8634B982FA7DD5300177FBA /* XCRemoteSwiftPackageReference "onnxruntime-swift-package-manager" */;
-			productName = onnxruntime;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = F990A85D286F663F00159819 /* Project object */;
 }
