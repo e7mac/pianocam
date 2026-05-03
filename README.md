@@ -1,71 +1,29 @@
-# PianoCam
+# cameraextension
+sample camera extension using coremedia io based on code I'm using in my own app Screegle https://www.appblit.com/screegle available on the App Store. This is why this new Camera Extension framework is so good: it lets us ship virtual cameras inside an app bundle that can be distributed on the App Store. And these cameras work in any app on macOS (including Apple's own apps such as FaceTime, QuickTime, Safari, etc.).
 
-A macOS app that overlays an 88-key piano on your webcam feed and lights up keys in real time as you play a connected USB MIDI controller.
+this example creates a virtual camera that has 2 streams: a source and a sink stream
 
-License: MIT.
+- the source stream is used by apps that want to receive frames from our camera (e.g. QuickTime, Zoom, Safari, etc.)
+- the sink stream is used by our own app to send frames to the virtual camera, which immediately forwards them to its source stream
 
-## Status
+when the sink stream is not started, the camera simply shows a black frame with a text (+ number of seconds)
 
-**Phase 1** — Windowed preview app. ✅
-**Phase 2** (in progress) — Camera Extension scaffolding. Currently emits a moving test pattern; IPC from host app pending (Phase 2.5).
+when the app runs, it asks the camera (using CoreMediaIO C API in Swift) if its source stream has started (meaning that at least one client such as QuickTime wants to see frames). If so, it starts sending frames to the sink (on our case a static image of Chamonix).
 
-## Tech stack
+**IMPORTANT** you'll need to replace the AppBlit team with your own and replace `388X9C8CWR.com.appblit.samplecamera` in the 3 places (entitlement files and the Info.plist of the extension).
 
-Apple frameworks only. No SwiftPM packages, no CocoaPods.
+after you compiled the code, find where it is using Xcode menu `Product` and `Show Build Folder in Finder` then open the `Build > Products > Debug` and drag `samplecamera` into `Applications`
 
-- Swift 5.9, SwiftUI, AppKit
-- AVFoundation (capture)
-- CoreMIDI (input)
-- macOS 13+, universal (arm64 + x86_64)
+From `/Applications` open `samplecamera`
 
-## Build
+Only then will the `activate` button work
 
-Requires [XcodeGen](https://github.com/yonaskolb/XcodeGen) and a paid Apple Developer Program membership (the Camera Extension entitlement requires real signing).
+To see the camera working, open for example QuickTime and pick the `sample camera`. You should see a beautiful picture of Chamonix.
 
-```
-cd pianocam
-xcodegen generate
-open PianoCam.xcodeproj
-```
+# links that can be useful
 
-In Xcode for **both** the `PianoCam` and `PianoCamExtension` targets:
 
-1. **Signing & Capabilities** → **Team**: pick your Developer Program team.
-2. Make sure **Automatically manage signing** is on.
-
-Then build and run the `PianoCam` scheme. On first launch macOS prompts for camera access.
-
-To install the virtual camera, open **PianoCam → Settings → Virtual Camera → Install**. macOS will prompt you to approve the system extension in **System Settings → Privacy & Security**. After approval, "PianoCam" appears as a camera in QuickTime / Zoom / etc.
-
-If the install fails with an unsigned-extension error during local development, run once:
-```
-sudo systemextensionsctl developer on
-```
-This permits unsigned/locally-signed extensions for testing only — re-sign with your Developer ID for distribution.
-
-## Phase 1 acceptance
-
-Launch app → see your face + piano overlay → play MIDI keys → keys light up with <50ms perceived latency.
-
-## File layout
-
-```
-pianocam/
-├── project.yml                       # XcodeGen spec
-├── README.md
-└── PianoCam/
-    ├── App.swift                     # @main, scene setup
-    ├── Info.plist
-    ├── PianoCam.entitlements
-    ├── Capture/
-    │   └── CameraSession.swift       # AVCaptureSession wrapper
-    ├── MIDI/
-    │   ├── MIDIInput.swift           # CoreMIDI client + parser
-    │   └── PianoState.swift          # Note/velocity/sustain model
-    ├── Overlay/
-    │   └── PianoKeyboardView.swift   # 88-key Canvas renderer
-    └── UI/
-        ├── ContentView.swift         # Camera + overlay composition
-        ├── CameraPreviewView.swift   # NSViewRepresentable preview
-        └── SettingsView.swift        # Camera/MIDI pickers
-```
+- Apple documentation https://developer.apple.com/documentation/coremediaio/creating_a_camera_extension_with_core_media_i_o
+- WWDC22 video explaining camera extensions https://developer.apple.com/videos/play/wwdc2022/10022/
+- Forum about custom properties https://developer.apple.com/forums/thread/708548
+- Forum about the idea of using a source and sink streams instead of XPC https://developer.apple.com/forums/thread/706184
