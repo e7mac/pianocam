@@ -33,7 +33,7 @@ targets:
         com.apple.security.device.camera: true
         com.apple.developer.system-extension.install: true
         com.apple.security.application-groups:
-          - $(TeamIdentifierPrefix)group.com.mayank.pianocam
+          - $(TeamIdentifierPrefix)com.mayank.pianocam
     info:
       path: PianoCam/Info.plist
       properties:
@@ -60,7 +60,7 @@ targets:
       properties:
         com.apple.security.app-sandbox: true
         com.apple.security.application-groups:
-          - $(TeamIdentifierPrefix)group.com.mayank.pianocam
+          - $(TeamIdentifierPrefix)com.mayank.pianocam
     info:
       path: PianoCamExtension/Info.plist
       properties:
@@ -69,7 +69,7 @@ targets:
         LSMinimumSystemVersion: "14.0"
         NSHumanReadableCopyright: MIT License
         CMIOExtension:
-          CMIOExtensionMachServiceName: $(TeamIdentifierPrefix)com.mayank.pianocam.extension
+          CMIOExtensionMachServiceName: $(TeamIdentifierPrefix)com.mayank.pianocam
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.mayank.pianocam.extension

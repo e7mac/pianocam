@@ -23,7 +23,7 @@
 	<key>CMIOExtension</key>
 	<dict>
 		<key>CMIOExtensionMachServiceName</key>
-		<string>$(TeamIdentifierPrefix)com.mayank.pianocam.extension</string>
+		<string>$(TeamIdentifierPrefix)com.mayank.pianocam</string>
 	</dict>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>

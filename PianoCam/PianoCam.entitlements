@@ -8,7 +8,7 @@
 	<true/>
 	<key>com.apple.security.application-groups</key>
 	<array>
-		<string>$(TeamIdentifierPrefix)group.com.mayank.pianocam</string>
+		<string>$(TeamIdentifierPrefix)com.mayank.pianocam</string>
 	</array>
 	<key>com.apple.security.device.camera</key>
 	<true/>
