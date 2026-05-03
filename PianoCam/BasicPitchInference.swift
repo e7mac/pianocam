@@ -3,15 +3,15 @@
 //  PianoCam
 //
 //  Polyphonic piano transcription using Spotify's Basic Pitch model via
-//  Microsoft's ONNX Runtime. Maintains a 2-second sliding audio buffer at
-//  22050 Hz, runs inference periodically on the most recent window, and
-//  emits synthetic note-on / note-off events into the same `PianoState`
-//  pipeline used by MIDI hardware.
+//  native CoreML. Maintains a 2-second sliding audio buffer at 22050 Hz,
+//  runs inference periodically on the most recent window, and emits
+//  synthetic note-on / note-off events into the same `PianoState` pipeline
+//  used by MIDI hardware.
 //
 
 import Foundation
 import AVFoundation
-import OnnxRuntimeBindings
+import CoreML
 
 final class BasicPitchInference {
     /// Synthetic MIDI events from the model. Called on the inference queue.
@@ -20,10 +20,13 @@ final class BasicPitchInference {
     var onStatus: ((String) -> Void)?
 
     static let modelSampleRate: Double = 22_050
-    static let modelWindowSamples = 43_844           // 2 seconds @ 22.05 kHz
+    static let modelWindowSamples = 43_844           // 2 s @ 22.05 kHz
+    static let modelFrames = 172                     // 86 fps for 2 s
+    static let modelPitches = 88
 
-    private let env: ORTEnv
-    private let session: ORTSession
+    private let model: MLModel
+    private let inputName: String
+    private let outputNames: [String]
     private let inferenceQueue = DispatchQueue(label: "pianocam.basicpitch", qos: .userInitiated)
 
     /// Audio at the model's native sample rate (22050 Hz).
@@ -41,7 +44,10 @@ final class BasicPitchInference {
         var onsetThreshold: Float = 0.50
         var frameThreshold: Float = 0.20
         var sustainedFraction: Float = 0.25
-        var minHoldSeconds: TimeInterval = 0.5
+        var minHoldSeconds: TimeInterval = 0.12
+        /// When true, audio chunks classified as speech are dropped before
+        /// reaching the model. Cuts vocal-induced false positives.
+        var rejectSpeech: Bool = true
     }
 
     /// Live-updatable detection settings — mutated from the main thread,
@@ -49,26 +55,46 @@ final class BasicPitchInference {
     var settings = Settings()
 
     init() throws {
-        env = try ORTEnv(loggingLevel: .warning)
-        guard let url = Bundle.main.url(forResource: "BasicPitch", withExtension: "onnx") else {
+        // At runtime, Xcode ships a compiled `.mlmodelc`. Fall back to the raw
+        // `.mlpackage` for projects that haven't yet rebuilt.
+        guard let url = Bundle.main.url(forResource: "BasicPitch", withExtension: "mlmodelc")
+                ?? Bundle.main.url(forResource: "BasicPitch", withExtension: "mlpackage") else {
             throw NSError(domain: "PianoCam", code: 1, userInfo: [
-                NSLocalizedDescriptionKey: "BasicPitch.onnx not in app bundle"
+                NSLocalizedDescriptionKey: "BasicPitch model not in app bundle"
             ])
         }
-        let opts = try ORTSessionOptions()
-        // Try to enable the CoreML execution provider (Apple Neural Engine
-        // when available, falls back to GPU/CPU otherwise).
-        let coreMLOptions: [String: String] = ["use_cpu_only": "0"]
-        try? opts.appendCoreMLExecutionProvider(with: ORTCoreMLExecutionProviderOptions())
-        _ = coreMLOptions
-        session = try ORTSession(env: env, modelPath: url.path, sessionOptions: opts)
+        let compiledURL: URL = (url.pathExtension == "mlmodelc")
+            ? url
+            : try MLModel.compileModel(at: url)
+
+        let cfg = MLModelConfiguration()
+        cfg.computeUnits = .all
+        self.model = try MLModel(contentsOf: compiledURL, configuration: cfg)
+
+        let desc = self.model.modelDescription
+        guard let inName = desc.inputDescriptionsByName.keys.first else {
+            throw NSError(domain: "PianoCam", code: 2, userInfo: [
+                NSLocalizedDescriptionKey: "BasicPitch model has no input"
+            ])
+        }
+        self.inputName = inName
+        self.outputNames = Array(desc.outputDescriptionsByName.keys).sorted()
         ring.reserveCapacity(Self.modelWindowSamples * 2)
-        NSLog("PianoCam basicpitch: model loaded")
+        NSLog("PianoCam basicpitch: CoreML loaded — input=\(inName) outputs=\(outputNames)")
     }
 
     /// Append fresh samples (at any source sample rate) and possibly run inference.
     func ingest(_ samples: [Float], sampleRate srcSR: Double) {
         let resampled = Self.linearResample(samples, from: srcSR, to: Self.modelSampleRate)
+
+        // Speech rejection: if the just-arrived chunk looks like speech, drop it.
+        // We do *not* reset state — brief speech overlapping piano shouldn't kill
+        // the active notes; the ring buffer simply doesn't grow during the speech.
+        if settings.rejectSpeech, !resampled.isEmpty,
+           VoiceActivityDetector.isSpeech(resampled, sampleRate: Self.modelSampleRate) {
+            return
+        }
+
         ring.append(contentsOf: resampled)
         let cap = Self.modelWindowSamples * 2
         if ring.count > cap {
@@ -99,155 +125,181 @@ final class BasicPitchInference {
     // MARK: - Inference
 
     private var probedOutputs = false
+    private var noteOutputName: String?
+    private var onsetOutputName: String?
 
     private func runInference(audio: [Float]) {
         do {
-            // Peak-normalize the 2s window — Basic Pitch was trained on
+            // Peak-normalize the 2 s window — Basic Pitch was trained on
             // normalized audio and underestimates note activity on quiet input.
             var peak: Float = 0
             for s in audio { let a = abs(s); if a > peak { peak = a } }
             var normalized = audio
             if peak > 0.001 {
-                let gain = 0.9 / peak
+                let gain: Float = 0.9 / peak
                 for i in 0..<normalized.count { normalized[i] *= gain }
             }
 
-            let shape: [NSNumber] = [1, NSNumber(value: Self.modelWindowSamples), 1]
-            let bytes = normalized.count * MemoryLayout<Float>.stride
-            let data = NSMutableData(length: bytes)!
-            normalized.withUnsafeBufferPointer { src in
-                memcpy(data.mutableBytes, src.baseAddress, bytes)
-            }
-            let input = try ORTValue(tensorData: data, elementType: .float, shape: shape)
-
-            let inputName = "serving_default_input_2:0"
-            let outA = "StatefulPartitionedCall:1"
-            let outB = "StatefulPartitionedCall:2"
-
-            let outputs = try session.run(
-                withInputs: [inputName: input],
-                outputNames: Set([outA, outB]),
-                runOptions: nil
+            let arr = try MLMultiArray(
+                shape: [1, NSNumber(value: Self.modelWindowSamples), 1],
+                dataType: .float32
             )
+            let dst = arr.dataPointer.bindMemory(
+                to: Float.self, capacity: Self.modelWindowSamples
+            )
+            normalized.withUnsafeBufferPointer { src in
+                dst.update(from: src.baseAddress!, count: Self.modelWindowSamples)
+            }
+            let provider = try MLDictionaryFeatureProvider(dictionary: [inputName: arr])
+            let out = try model.prediction(from: provider)
 
-            guard let valA = outputs[outA], let valB = outputs[outB] else { return }
-            let dataA = try valA.tensorData() as Data
-            let dataB = try valB.tensorData() as Data
-
-            let frameCount = 172, pitchCount = 88
-            guard dataA.count == frameCount * pitchCount * MemoryLayout<Float>.size,
-                  dataB.count == dataA.count else {
-                NSLog("PianoCam basicpitch: unexpected output sizes")
+            // Of the (up to) 3 outputs, the two with shape (1, 172, 88) are
+            // note + onset. Probe by mean: the sustained note-prob map has a
+            // higher mean than the sparse onset map.
+            var pitchOutputs: [(name: String, arr: MLMultiArray)] = []
+            for name in outputNames {
+                guard let v = out.featureValue(for: name)?.multiArrayValue else { continue }
+                if v.shape.count == 3, v.shape[2].intValue == Self.modelPitches {
+                    pitchOutputs.append((name, v))
+                }
+            }
+            guard pitchOutputs.count >= 2 else {
+                NSLog("PianoCam basicpitch: unexpected pitch-output count \(pitchOutputs.count)")
                 return
             }
-            let probsA = Self.toFloats(dataA)
-            let probsB = Self.toFloats(dataB)
-
-            // Probe which output is "note" (sustained) vs "onset" (sparse).
-            // Onset peaks are sparse; note remains high for the whole note's
-            // duration. So `note` has a higher mean for a given pitch's time
-            // series than `onset` does. Use mean-of-active-frames as a hint.
-            let aMean = probsA.reduce(0, +) / Float(probsA.count)
-            let bMean = probsB.reduce(0, +) / Float(probsB.count)
-            let noteProbs: [Float]
-            let onsetProbs: [Float]
-            if aMean >= bMean {
-                noteProbs = probsA; onsetProbs = probsB
-            } else {
-                noteProbs = probsB; onsetProbs = probsA
-            }
             if !probedOutputs {
+                let m0 = Self.mean(of: pitchOutputs[0].arr)
+                let m1 = Self.mean(of: pitchOutputs[1].arr)
+                if m0 >= m1 {
+                    noteOutputName = pitchOutputs[0].name
+                    onsetOutputName = pitchOutputs[1].name
+                } else {
+                    noteOutputName = pitchOutputs[1].name
+                    onsetOutputName = pitchOutputs[0].name
+                }
                 probedOutputs = true
-                NSLog("PianoCam basicpitch: outputs probed — :1 mean=\(String(format: "%.3f", aMean)) :2 mean=\(String(format: "%.3f", bMean)) → \(aMean >= bMean ? ":1=note,:2=onset" : ":1=onset,:2=note")")
+                NSLog("PianoCam basicpitch: probed — note=\(noteOutputName!), onset=\(onsetOutputName!)")
             }
+            guard let nName = noteOutputName, let oName = onsetOutputName,
+                  let noteArr = out.featureValue(for: nName)?.multiArrayValue,
+                  let onsetArr = out.featureValue(for: oName)?.multiArrayValue else { return }
 
-            // Analyze the last ~256 ms (22 frames at 86 fps).
-            let tailFrames = 22
-            let startFrame = max(0, frameCount - tailFrames)
-            let totalTail = frameCount - startFrame
-
-            // Diagnostic: log peak probabilities seen in the recent window.
-            var maxNote: Float = 0
-            var maxOnset: Float = 0
-            for f in startFrame..<frameCount {
-                for p in 0..<pitchCount {
-                    let i = f * pitchCount + p
-                    if noteProbs[i] > maxNote { maxNote = noteProbs[i] }
-                    if onsetProbs[i] > maxOnset { maxOnset = onsetProbs[i] }
-                }
-            }
-            if Int.random(in: 0..<5) == 0 {
-                NSLog("PianoCam basicpitch: peak note=\(String(format: "%.2f", maxNote)) onset=\(String(format: "%.2f", maxOnset)) audioPeak=\(String(format: "%.3f", peak))")
-            }
-
-            var detectedActive: Set<UInt8> = []
-            var detectedOnsets: [UInt8: Float] = [:]   // note -> peak onset score
-            for p in 0..<pitchCount {
-                var activeCount = 0
-                var maxOnset: Float = 0
-                for f in startFrame..<frameCount {
-                    let i = f * pitchCount + p
-                    if noteProbs[i] > settings.frameThreshold { activeCount += 1 }
-                    if onsetProbs[i] > maxOnset { maxOnset = onsetProbs[i] }
-                }
-                let activeFraction = Float(activeCount) / Float(totalTail)
-                let midi = UInt8(21 + p)
-                if activeFraction >= settings.sustainedFraction
-                    || maxOnset >= settings.onsetThreshold {
-                    detectedActive.insert(midi)
-                }
-                if maxOnset >= settings.onsetThreshold {
-                    detectedOnsets[midi] = maxOnset
-                }
-            }
-
-            // Octave-suppression: if both N and N+12 are detected and one is
-            // much weaker, drop the weaker. Helps with the second-harmonic
-            // false positive that vanilla Basic Pitch sometimes produces.
-            for note in Array(detectedActive) {
-                let upper = note &+ 12
-                guard detectedActive.contains(upper) else { continue }
-                let lowerOnset = detectedOnsets[note] ?? 0
-                let upperOnset = detectedOnsets[upper] ?? 0
-                if upperOnset < lowerOnset * 0.6 {
-                    detectedActive.remove(upper)
-                    detectedOnsets.removeValue(forKey: upper)
-                }
-            }
-
-            // Emit note-off only after the minimum hold time has elapsed.
-            let now = Date().timeIntervalSince1970
-            let toTurnOff = activeNotes.subtracting(detectedActive)
-            for note in toTurnOff {
-                let onTime = noteOnTimes[note] ?? 0
-                if now - onTime >= settings.minHoldSeconds {
-                    onEvent?(.noteOff(note: note))
-                    activeNotes.remove(note)
-                    noteOnTimes.removeValue(forKey: note)
-                }
-            }
-            // Emit note-on for any note with a fresh strong onset.
-            for (note, _) in detectedOnsets {
-                if !activeNotes.contains(note) {
-                    onEvent?(.noteOn(note: note, velocity: 100))
-                    activeNotes.insert(note)
-                    noteOnTimes[note] = now
-                }
-            }
-            onStatus?("active=\(activeNotes.count)")
+            processOutput(noteArr: noteArr, onsetArr: onsetArr, audioPeak: peak)
         } catch {
             NSLog("PianoCam basicpitch: inference failed — \(error)")
         }
     }
 
+    private func processOutput(noteArr: MLMultiArray, onsetArr: MLMultiArray, audioPeak: Float) {
+        let frameCount = Self.modelFrames
+        let pitchCount = Self.modelPitches
+        // Analyze the most-recent ~stride frames (250 ms ≈ 22 frames @ 86 fps).
+        let tailFrames = 22
+        let startFrame = max(0, frameCount - tailFrames)
+
+        let nPtr = noteArr.dataPointer.bindMemory(to: Float.self, capacity: noteArr.count)
+        let oPtr = onsetArr.dataPointer.bindMemory(to: Float.self, capacity: onsetArr.count)
+
+        let onsetThr = settings.onsetThreshold
+        let frameThr = settings.frameThreshold
+        let sustainedFrac = settings.sustainedFraction
+
+        var detectedSustained: Set<UInt8> = []
+        var peakOnsetByPitch: [UInt8: Float] = [:]
+        // Each entry is one detected attack; multiple per pitch are allowed
+        // (e.g., trills). Sorted by time before being emitted so retriggers
+        // come out in chronological order.
+        var newOnsets: [(time: Int, note: UInt8, score: Float)] = []
+
+        var diagMaxOnset: Float = 0
+        var diagMaxNote: Float = 0
+
+        for p in 0..<pitchCount {
+            var activeCount = 0
+            var maxOnsetInTail: Float = 0
+            for f in startFrame..<frameCount {
+                let nVal = nPtr[f * pitchCount + p]
+                let oVal = oPtr[f * pitchCount + p]
+                if nVal > frameThr { activeCount += 1 }
+                if oVal > maxOnsetInTail { maxOnsetInTail = oVal }
+                if oVal > diagMaxOnset { diagMaxOnset = oVal }
+                if nVal > diagMaxNote { diagMaxNote = nVal }
+
+                // Local-maximum onset peak picking — looking back to the
+                // previous frame in the same inference window (which is fine
+                // because the model output covers the full 2 s; only emission
+                // is restricted to the tail).
+                let prevVal: Float = (f > 0) ? oPtr[(f - 1) * pitchCount + p] : 0
+                let nextVal: Float = (f + 1 < frameCount) ? oPtr[(f + 1) * pitchCount + p] : 0
+                if oVal > onsetThr, oVal > prevVal, oVal >= nextVal {
+                    newOnsets.append((time: f, note: UInt8(21 + p), score: oVal))
+                }
+            }
+            let activeFraction = Float(activeCount) / Float(frameCount - startFrame)
+            let midi = UInt8(21 + p)
+            if activeFraction >= sustainedFrac || maxOnsetInTail >= onsetThr {
+                detectedSustained.insert(midi)
+            }
+            if maxOnsetInTail >= onsetThr {
+                peakOnsetByPitch[midi] = maxOnsetInTail
+            }
+        }
+
+        // Octave-suppression: if both N and N+12 detected and upper is much
+        // weaker, drop the upper (Basic Pitch's second-harmonic FP).
+        for note in Array(detectedSustained) {
+            let upper = note &+ 12
+            guard detectedSustained.contains(upper) else { continue }
+            let lowerOnset = peakOnsetByPitch[note] ?? 0
+            let upperOnset = peakOnsetByPitch[upper] ?? 0
+            if upperOnset < lowerOnset * 0.6 {
+                detectedSustained.remove(upper)
+                peakOnsetByPitch.removeValue(forKey: upper)
+                newOnsets.removeAll { $0.note == upper }
+            }
+        }
+
+        let now = Date().timeIntervalSince1970
+
+        // Note-off: notes that are no longer sustained, past their min-hold.
+        let toTurnOff = activeNotes.subtracting(detectedSustained)
+        for note in toTurnOff {
+            let onTime = noteOnTimes[note] ?? 0
+            if now - onTime >= settings.minHoldSeconds {
+                onEvent?(.noteOff(note: note))
+                activeNotes.remove(note)
+                noteOnTimes.removeValue(forKey: note)
+            }
+        }
+
+        // Note-on / re-trigger: each peak-picked onset is a fresh attack. If
+        // the pitch is already active, emit a note-off first so the host sees
+        // the retrigger rather than a single sustained note.
+        newOnsets.sort { $0.time < $1.time }
+        for onset in newOnsets {
+            if activeNotes.contains(onset.note) {
+                onEvent?(.noteOff(note: onset.note))
+                activeNotes.remove(onset.note)
+            }
+            onEvent?(.noteOn(note: onset.note, velocity: 100))
+            activeNotes.insert(onset.note)
+            noteOnTimes[onset.note] = now
+        }
+
+        if Int.random(in: 0..<5) == 0 {
+            NSLog("PianoCam basicpitch: peak note=\(String(format: "%.2f", diagMaxNote)) onset=\(String(format: "%.2f", diagMaxOnset)) audioPeak=\(String(format: "%.3f", audioPeak)) active=\(activeNotes.count) onsets=\(newOnsets.count)")
+        }
+        onStatus?("active=\(activeNotes.count)")
+    }
+
     // MARK: - Helpers
 
-    private static func toFloats(_ data: Data) -> [Float] {
-        let count = data.count / MemoryLayout<Float>.size
-        return data.withUnsafeBytes { raw -> [Float] in
-            let ptr = raw.bindMemory(to: Float.self)
-            return Array(UnsafeBufferPointer(start: ptr.baseAddress, count: count))
-        }
+    private static func mean(of arr: MLMultiArray) -> Float {
+        let count = arr.count
+        let ptr = arr.dataPointer.bindMemory(to: Float.self, capacity: count)
+        var sum: Float = 0
+        for i in 0..<count { sum += ptr[i] }
+        return sum / Float(count)
     }
 
     /// Cheap linear-interpolation resampler. Good enough for piano work where
