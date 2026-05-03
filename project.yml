@@ -61,14 +61,13 @@ targets:
     entitlements:
       path: PianoCamExtension/PianoCamExtension.entitlements
       properties:
-        com.apple.security.app-sandbox: true
         com.apple.security.application-groups:
           - $(TeamIdentifierPrefix)group.com.mayank.pianocam
     info:
       path: PianoCamExtension/Info.plist
       properties:
         CFBundleDisplayName: PianoCam Camera
-        CFBundlePackageType: SYSX
+        CFBundlePackageType: XPC!
         LSMinimumSystemVersion: "14.0"
         NSHumanReadableCopyright: MIT License
         CMIOExtension:

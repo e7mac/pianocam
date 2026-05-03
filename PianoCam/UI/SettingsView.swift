@@ -24,6 +24,12 @@ struct SettingsView: View {
                 Text(installer.status.description)
                     .foregroundStyle(.secondary)
             }
+            HStack {
+                Button("Install") { installer.install() }
+                    .disabled(installer.status == .installing)
+                Button("Uninstall") { installer.uninstall() }
+                    .disabled(installer.status == .installing)
+            }
         }
     }
 
