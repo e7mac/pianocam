@@ -428,13 +428,23 @@ private final class OfflineBasicPitchAnalyzer {
         let totalDuration = Double(samples.count) / sampleRate
 
         // Active-note state across windows: which pitches are currently held,
-        // when they were last activated, when their note-frame was last seen.
+        // when they were last activated, when their note-frame was last seen,
+        // and the peak note-prob since the most recent onset (used for the
+        // adaptive offset threshold).
         var onTimes: [UInt8: TimeInterval] = [:]
         var lastActiveAt: [UInt8: TimeInterval] = [:]
+        var peakSinceOnset: [UInt8: Float] = [:]
         var events: [(TimeInterval, MIDIEvent)] = []
         // Brief min-hold to suppress reverberant micro-retriggers.
         let minHold: TimeInterval = 0.04
         let releaseGap: TimeInterval = 0.12
+        // Adaptive offset: a held note is "still active" while its note-prob
+        // stays above max(absoluteFloor, peakSinceOnset * relativeRatio). This
+        // tracks piano's natural decay regardless of attack strength — loud
+        // notes release fast even though their absolute prob stays > 0.40 for
+        // a while; soft notes don't get prematurely cut.
+        let adaptiveAbsoluteFloor: Float = 0.10
+        let adaptiveRelativeRatio: Float = 0.5
 
         var windowStart = 0
         var firstWindow = true
@@ -468,9 +478,25 @@ private final class OfflineBasicPitchAnalyzer {
                     let midi = UInt8(21 + p)
                     let oVal = onsets[base + p]
                     let nVal = notes[base + p]
-                    if nVal >= settings.frameThreshold {
+
+                    // Active-frame check.
+                    // - For *held* notes, use the adaptive threshold (relative
+                    //   to per-note peak) so we release on actual decay, not
+                    //   on absolute level. This is the piano-specific fix for
+                    //   "sticky" sustains.
+                    // - For *not-held* pitches, use the absolute threshold so
+                    //   stray bleed from neighboring notes doesn't latch on.
+                    if onTimes[midi] != nil {
+                        let updatedPeak = max(peakSinceOnset[midi] ?? nVal, nVal)
+                        peakSinceOnset[midi] = updatedPeak
+                        let activeFloor = max(adaptiveAbsoluteFloor, updatedPeak * adaptiveRelativeRatio)
+                        if nVal >= activeFloor {
+                            lastActiveAt[midi] = frameTime
+                        }
+                    } else if nVal >= settings.frameThreshold {
                         lastActiveAt[midi] = frameTime
                     }
+
                     // Local-max onset: rising edge into a peak strictly
                     // above the previous frame, ≥ the next.
                     let prevVal: Float = (f > 0) ? onsets[(f - 1) * pitchCount + p] : 0
@@ -489,6 +515,11 @@ private final class OfflineBasicPitchAnalyzer {
                     events.append((frameTime, .noteOn(note: midi, velocity: velocity)))
                     onTimes[midi] = frameTime
                     lastActiveAt[midi] = frameTime
+                    // Reset peak tracking to the current frame's note-prob (a
+                    // strong onset usually coincides with a high note-prob
+                    // peak in the next 1–2 frames; we'll catch that on the
+                    // next iteration via the max() above).
+                    peakSinceOnset[midi] = nVal
                 }
             }
 
@@ -506,6 +537,7 @@ private final class OfflineBasicPitchAnalyzer {
                         else if case .noteOff(let n) = events[i].1, n == upper { events.remove(at: i); dropped += 1 }
                     }
                     onTimes.removeValue(forKey: upper)
+                    peakSinceOnset.removeValue(forKey: upper)
                 }
             }
 
@@ -516,6 +548,7 @@ private final class OfflineBasicPitchAnalyzer {
                 if windowEndTime - last > releaseGap {
                     events.append((last + releaseGap, .noteOff(note: midi)))
                     onTimes.removeValue(forKey: midi)
+                    peakSinceOnset.removeValue(forKey: midi)
                 }
             }
 
