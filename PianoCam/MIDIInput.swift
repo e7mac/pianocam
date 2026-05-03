@@ -12,7 +12,10 @@ import Foundation
 final class MIDIInput {
     /// Called on a background CoreMIDI thread.
     var onEvent: ((MIDIEvent) -> Void)?
+    /// Called on the main queue whenever the connected source list changes.
+    var onSourcesChanged: (([String]) -> Void)?
 
+    private(set) var connectedNames: [String] = []
     private var client: MIDIClientRef = 0
     private var port: MIDIPortRef = 0
     private var connected: Set<MIDIEndpointRef> = []
@@ -50,21 +53,33 @@ final class MIDIInput {
         guard port != 0 else { return }
         let count = MIDIGetNumberOfSources()
         var seen: Set<MIDIEndpointRef> = []
+        var names: [String] = []
         for i in 0..<count {
             let ep = MIDIGetSource(i)
             guard ep != 0 else { continue }
             seen.insert(ep)
+            var nameRef: Unmanaged<CFString>?
+            MIDIObjectGetStringProperty(ep, kMIDIPropertyDisplayName, &nameRef)
+            let name = (nameRef?.takeRetainedValue() as String?) ?? "source \(i)"
+            names.append(name)
             if !connected.contains(ep) {
-                if MIDIPortConnectSource(port, ep, nil) == noErr {
+                let st = MIDIPortConnectSource(port, ep, nil)
+                if st == noErr {
                     connected.insert(ep)
+                    NSLog("MIDIInput: connected to \(name)")
+                } else {
+                    NSLog("MIDIInput: failed to connect to \(name) status=\(st)")
                 }
             }
         }
-        // Drop endpoints that disappeared.
         let stale = connected.subtracting(seen)
         for ep in stale {
             MIDIPortDisconnectSource(port, ep)
             connected.remove(ep)
+        }
+        connectedNames = names
+        DispatchQueue.main.async { [weak self] in
+            self?.onSourcesChanged?(names)
         }
     }
 

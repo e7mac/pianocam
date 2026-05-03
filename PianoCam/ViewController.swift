@@ -27,6 +27,7 @@ class ViewController: NSViewController {
     private var cameraPicker: NSPopUpButton!
     private let previewLayer = AVSampleBufferDisplayLayer()
     private var previewView: NSView!
+    private var midiStatusLabel: NSTextField!
     private var readyToEnqueue = false
     private var enqueued = false
     private var _videoDescription: CMFormatDescription!
@@ -314,6 +315,11 @@ class ViewController: NSViewController {
         rebuildCameraMenu()
         self.view.addSubview(cameraPicker)
 
+        midiStatusLabel = fakeLabel("MIDI: …")
+        midiStatusLabel.frame = NSRect(x: cameraPicker.frame.maxX + 12, y: 32,
+                                       width: 380, height: 20)
+        self.view.addSubview(midiStatusLabel)
+
         // Live preview of the exact composited buffer that's pushed to the
         // virtual camera, so you can verify look + latency without QuickTime.
         previewView = NSView(frame: NSRect(x: 0, y: 60,
@@ -340,6 +346,10 @@ class ViewController: NSViewController {
 
         midiInput.onEvent = { [weak self] event in
             self?.pianoState.handle(event)
+        }
+        midiInput.onSourcesChanged = { [weak self] names in
+            let label = names.isEmpty ? "MIDI: no sources" : "MIDI: \(names.joined(separator: ", "))"
+            self?.midiStatusLabel?.stringValue = label
         }
         midiInput.start()
 
