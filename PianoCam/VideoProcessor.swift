@@ -12,7 +12,7 @@ import CoreImage
 import CoreMedia
 import CoreVideo
 import Foundation
-import onnxruntime
+import OnnxRuntimeBindings
 
 @MainActor
 final class VideoProcessor: ObservableObject {
