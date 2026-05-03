@@ -11,7 +11,7 @@
 
 import Foundation
 import AVFoundation
-import onnxruntime_objc
+import onnxruntime
 
 final class BasicPitchInference {
     /// Synthetic MIDI events from the model. Called on the inference queue.
