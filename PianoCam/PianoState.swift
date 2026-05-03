@@ -27,6 +27,11 @@ final class PianoState {
         return activeVelocitiesUnsafe
     }
 
+    var isSustainDown: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return sustainDown
+    }
+
     func handle(_ event: MIDIEvent) {
         lock.lock(); defer { lock.unlock() }
         switch event {
