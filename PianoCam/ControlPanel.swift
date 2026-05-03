@@ -25,7 +25,7 @@ struct ControlPanel: View {
             }
             Divider()
             controlsRow
-            if state.audioMode == .basicPitch && state.audioEnabled {
+            if state.audioMode == .basicPitch {
                 Divider()
                 basicPitchSettings
             }
