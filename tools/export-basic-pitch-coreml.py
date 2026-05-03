@@ -68,10 +68,9 @@ def main() -> int:
     torch_model = onnx2torch_convert(onnx_model)
     torch_model.eval()
 
-    # ONNX inputs may have ambiguous batch dims. Set up a concrete shape that
-    # matches the model's audio expectations.
+    # Basic Pitch's ONNX input is (batch, samples, 1) — note the trailing channel dim.
     print("Tracing PyTorch model…")
-    example = torch.randn(1, SAMPLE_COUNT, dtype=torch.float32)
+    example = torch.randn(1, SAMPLE_COUNT, 1, dtype=torch.float32)
     try:
         traced = torch.jit.trace(torch_model, example, strict=False)
     except Exception as e:
@@ -86,7 +85,7 @@ def main() -> int:
         mlmodel = ct.convert(
             traced,
             source="pytorch",
-            inputs=[ct.TensorType(name="audio", shape=(1, SAMPLE_COUNT))],
+            inputs=[ct.TensorType(name="audio", shape=(1, SAMPLE_COUNT, 1))],
             minimum_deployment_target=ct.target.macOS14,
             compute_units=ct.ComputeUnit.ALL,
         )
