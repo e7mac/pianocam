@@ -184,10 +184,14 @@ final class BasicPitchInference {
                 }
                 let activeFraction = Float(activeCount) / Float(totalTail)
                 let midi = UInt8(21 + p)
-                if activeFraction >= sustainedFraction {
+                // A note is "active" (kept lit) if either:
+                //   • frame probability is sustained, OR
+                //   • a strong onset just happened (so the note is freshly struck).
+                if activeFraction >= sustainedFraction || maxOnset >= onsetThreshold {
                     detectedActive.insert(midi)
                 }
-                if maxOnset >= onsetThreshold && activeFraction >= 0.15 {
+                // Only fire note-on for clearly-onset notes.
+                if maxOnset >= onsetThreshold {
                     detectedOnsets[midi] = maxOnset
                 }
             }
@@ -212,9 +216,9 @@ final class BasicPitchInference {
                 onEvent?(.noteOff(note: note))
                 activeNotes.remove(note)
             }
-            // Emit note-on for newly onset notes that are also currently active.
+            // Emit note-on for any note with a fresh strong onset.
             for (note, _) in detectedOnsets {
-                if !activeNotes.contains(note) && detectedActive.contains(note) {
+                if !activeNotes.contains(note) {
                     onEvent?(.noteOn(note: note, velocity: 100))
                     activeNotes.insert(note)
                 }
