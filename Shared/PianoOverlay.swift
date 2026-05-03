@@ -17,7 +17,11 @@ enum PianoOverlay {
                      activeNotes: [UInt8: UInt8] = [:],
                      sustainDown: Bool = false) {
         let h = rect.height * heightFraction
-        let frame = CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: h)
+        // Small safe-area margin so the bottom of the pedal isn't flush to
+        // the frame edge (some video apps crop a few pixels of the bottom).
+        let bottomMargin = max(2, rect.height * 0.012)
+        let frame = CGRect(x: rect.minX, y: rect.minY + bottomMargin,
+                           width: rect.width, height: h - bottomMargin)
         let cs = CGColorSpaceCreateDeviceRGB()
 
         // Vertical layout, top to bottom (visually): felt, keyboard, pedal area.
@@ -45,22 +49,46 @@ enum PianoOverlay {
         return v
     }()
 
-    /// Sustain pedal silhouette centered below the keyboard.
-    /// `rect` is bottom-up CG coords: minY = floor, maxY = pedal area top.
+    /// Three pedals (una corda, sostenuto, sustain) drawn below the keyboard.
+    /// Only the sustain pedal animates from MIDI right now.
     private static func drawPedal(ctx: CGContext, rect: CGRect, cs: CGColorSpace, sustainDown: Bool) {
-        // Floor / shadow under the pedal.
-        ctx.setFillColor(red: 0, green: 0, blue: 0, alpha: 0.7)
+        // Dark floor under the pedal lyre.
+        ctx.setFillColor(red: 0, green: 0, blue: 0, alpha: 0.6)
         ctx.fill(rect)
 
-        // Pedal "post" — vertical stem going from the floor up to the pedal pad.
-        let postW = rect.width * 0.012
-        let postH = rect.height * 0.35
-        let postRect = CGRect(x: rect.midX - postW / 2,
-                              y: rect.minY + rect.height * 0.05,
+        // Centered cluster of 3 pedals occupying ~12% of the frame width.
+        let clusterW = rect.width * 0.12
+        let pedalSpacing = clusterW / 3
+        let cx = rect.midX
+        let positions: [CGFloat] = [
+            cx - pedalSpacing,   // una corda (soft)
+            cx,                  // sostenuto
+            cx + pedalSpacing,   // sustain
+        ]
+        let active = [false, false, sustainDown]
+
+        for (i, x) in positions.enumerated() {
+            drawSinglePedal(ctx: ctx, rect: rect, cs: cs, centerX: x,
+                            spacing: pedalSpacing, depressed: active[i])
+        }
+    }
+
+    private static func drawSinglePedal(ctx: CGContext,
+                                        rect: CGRect,
+                                        cs: CGColorSpace,
+                                        centerX: CGFloat,
+                                        spacing: CGFloat,
+                                        depressed: Bool) {
+        // Post (vertical brass rod from floor up to the pad)
+        let postW = max(1.5, spacing * 0.07)
+        let postBottom = rect.minY + rect.height * 0.08
+        let postTop    = rect.minY + rect.height * 0.65
+        let postRect = CGRect(x: centerX - postW / 2,
+                              y: postBottom,
                               width: postW,
-                              height: postH)
-        let postLight = CGColor(red: 0.55, green: 0.50, blue: 0.45, alpha: 1)
-        let postDark  = CGColor(red: 0.20, green: 0.18, blue: 0.16, alpha: 1)
+                              height: postTop - postBottom)
+        let postLight = CGColor(red: 0.55, green: 0.50, blue: 0.40, alpha: 1)
+        let postDark  = CGColor(red: 0.20, green: 0.18, blue: 0.14, alpha: 1)
         if let g = CGGradient(colorsSpace: cs, colors: [postLight, postDark, postLight] as CFArray, locations: [0, 0.5, 1]) {
             ctx.saveGState()
             ctx.clip(to: postRect)
@@ -71,24 +99,24 @@ enum PianoOverlay {
             ctx.restoreGState()
         }
 
-        // Pedal pad — a polished brass-ish bar that tilts down a few degrees when sustained.
-        let padW = rect.width * 0.085
-        let padH = rect.height * 0.36
-        let padCenter = CGPoint(x: rect.midX, y: rect.minY + rect.height * 0.55)
-        let pivotAngle: CGFloat = sustainDown ? -0.18 : 0.0  // negative tilts pad's free end downward
-
-        ctx.saveGState()
-        ctx.translateBy(x: padCenter.x, y: padCenter.y)
-        ctx.rotate(by: pivotAngle)
-
-        let padRect = CGRect(x: -padW / 2, y: -padH / 2, width: padW, height: padH)
-        let pad = CGPath(roundedRect: padRect, cornerWidth: padH * 0.18, cornerHeight: padH * 0.18, transform: nil)
+        // Pad — brass paddle. When depressed, translate downward (no rotation
+        // so it can't escape the pedal area).
+        let padW = spacing * 0.78
+        let padH = max(4, rect.height * 0.20)
+        let depressOffset: CGFloat = depressed ? -rect.height * 0.10 : 0
+        let padCenterY = postTop + padH * 0.05 + depressOffset
+        let padRect = CGRect(x: centerX - padW / 2,
+                             y: padCenterY - padH / 2,
+                             width: padW,
+                             height: padH)
+        let cornerR = padH * 0.30
+        let pad = CGPath(roundedRect: padRect, cornerWidth: cornerR, cornerHeight: cornerR, transform: nil)
 
         // Drop shadow under the pad.
         ctx.saveGState()
-        ctx.setShadow(offset: CGSize(width: 0, height: -2), blur: 6,
+        ctx.setShadow(offset: CGSize(width: 0, height: -1.5), blur: 4,
                       color: CGColor(red: 0, green: 0, blue: 0, alpha: 0.8))
-        ctx.setFillColor(CGColor(red: 0.32, green: 0.27, blue: 0.18, alpha: 1))
+        ctx.setFillColor(CGColor(red: 0.30, green: 0.25, blue: 0.16, alpha: 1))
         ctx.addPath(pad)
         ctx.fillPath()
         ctx.restoreGState()
@@ -110,27 +138,25 @@ enum PianoOverlay {
             ctx.restoreGState()
         }
 
-        // Top specular line to sell the metallic look.
+        // Specular highlight strip.
         let hl = CGRect(x: padRect.minX + padW * 0.08,
-                        y: padRect.maxY - padH * 0.10,
+                        y: padRect.maxY - padH * 0.18,
                         width: padW * 0.84,
-                        height: max(0.8, padH * 0.04))
+                        height: max(0.6, padH * 0.08))
         ctx.setFillColor(CGColor(red: 1, green: 1, blue: 0.9, alpha: 0.55))
         ctx.fill(hl)
 
-        // Glow ring when sustain is engaged.
-        if sustainDown {
+        // Glow ring when this pedal is engaged.
+        if depressed {
             ctx.saveGState()
-            ctx.setShadow(offset: .zero, blur: 12,
-                          color: CGColor(red: 0.45, green: 0.85, blue: 1.0, alpha: 0.9))
+            ctx.setShadow(offset: .zero, blur: 10,
+                          color: CGColor(red: 0.45, green: 0.85, blue: 1.0, alpha: 0.95))
             ctx.setStrokeColor(CGColor(red: 0.5, green: 0.9, blue: 1, alpha: 0.95))
-            ctx.setLineWidth(1.5)
+            ctx.setLineWidth(1.2)
             ctx.addPath(pad)
             ctx.strokePath()
             ctx.restoreGState()
         }
-
-        ctx.restoreGState()
     }
 
     private static func drawFelt(ctx: CGContext, rect: CGRect, cs: CGColorSpace) {
