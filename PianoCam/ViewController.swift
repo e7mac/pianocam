@@ -283,6 +283,7 @@ class ViewController: NSViewController {
                 self?.hostState.videoProcessingOutput = u
             }
         ]
+        videoProcessor.speechRejectionEnabled = hostState.speechRejectionEnabled
         videoProcessor.process(input: input,
                                output: output,
                                settings: audioDetector.basicPitchSettings)

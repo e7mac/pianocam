@@ -139,9 +139,25 @@ final class VideoProcessor: ObservableObject {
 
         // Resample to 22050 for Basic Pitch.
         let target: Double = 22_050
-        let resampled = Self.linearResample(allSamples, from: sr, to: target)
+        var resampled = Self.linearResample(allSamples, from: sr, to: target)
 
-        // Run Basic Pitch in 2-second windows with 50% overlap.
+        // Speech rejection: zero out ~100 ms chunks that look speech-like.
+        if speechRejectionEnabled {
+            let chunkSize = Int(target * 0.1)   // 100 ms
+            var i = 0
+            var muted = 0
+            while i < resampled.count {
+                let end = min(i + chunkSize, resampled.count)
+                let slice = Array(resampled[i..<end])
+                if VoiceActivityDetector.isSpeech(slice, sampleRate: target) {
+                    for j in i..<end { resampled[j] = 0 }
+                    muted += 1
+                }
+                i = end
+            }
+            NSLog("VideoProcessor: speech rejection muted \(muted) chunks")
+        }
+
         let analyzer = try OfflineBasicPitchAnalyzer()
         let events = analyzer.process(samples: resampled,
                                       sampleRate: target,
@@ -150,6 +166,10 @@ final class VideoProcessor: ObservableObject {
         }
         return events
     }
+
+    /// Whether to gate speech-like audio out of the offline analysis. The UI
+    /// flips this on `HostState.vadEnabled`; we read it once when processing starts.
+    nonisolated(unsafe) var speechRejectionEnabled: Bool = false
 
     // MARK: - Video render
 
@@ -415,7 +435,7 @@ private final class OfflineBasicPitchAnalyzer {
         var onTimes: [UInt8: TimeInterval] = [:]   // when each currently-on note fired
         var events: [(TimeInterval, MIDIEvent)] = []
 
-        let onsetCooldown: TimeInterval = 0.07     // dedup repeated onset detections
+        let onsetCooldown: TimeInterval = 0.04     // dedup repeated onset detections
         let releaseGap: TimeInterval = 0.12        // emit note-off after this much silence
 
         var windowStart = 0

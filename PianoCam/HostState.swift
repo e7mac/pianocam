@@ -43,10 +43,11 @@ final class HostState: ObservableObject {
     @Published var audioMode: AudioPitchMode = .basicPitch
 
     // Basic Pitch tunables, exposed in the UI.
-    @Published var bpOnsetThreshold: Float = 0.50
-    @Published var bpFrameThreshold: Float = 0.20
-    @Published var bpSustainedFraction: Float = 0.25
-    @Published var bpMinHoldSeconds: Double = 0.5
+    @Published var bpOnsetThreshold: Float = 0.30
+    @Published var bpFrameThreshold: Float = 0.18
+    @Published var bpSustainedFraction: Float = 0.20
+    @Published var bpMinHoldSeconds: Double = 0.4
+    @Published var speechRejectionEnabled: Bool = false
 
     /// Video processing UI state, mirrored from VideoProcessor.
     @Published var videoProcessing: Bool = false

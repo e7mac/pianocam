@@ -17,6 +17,7 @@
 		9CA655AE16A834084FFD9A3F /* VideoProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43D9FC8B733C2EDA611F0D57 /* VideoProcessor.swift */; };
 		A8634B9A2FA7DD5300177FBA /* onnxruntime in Frameworks */ = {isa = PBXBuildFile; productRef = A8634B992FA7DD5300177FBA /* onnxruntime */; };
 		A8634B9D2FA7DD8300177FBA /* BasicPitch.onnx in Resources */ = {isa = PBXBuildFile; fileRef = A8634B9B2FA7DD8300177FBA /* BasicPitch.onnx */; };
+		D265D9D0214945C418D72677 /* VoiceActivityDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 296FF0EED37A6CFB44FDBBF9 /* VoiceActivityDetector.swift */; };
 		E94BAC4EB866570DB1D5F60C /* PianoOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00FB38140ECBDF9C1231CBF6 /* PianoOverlay.swift */; };
 		F3A05A1B9C24ED261A06EC34 /* BasicPitchInference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CBBACBF07E6CA03C9B05FC3 /* BasicPitchInference.swift */; };
 		F990A869286F663F00159819 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F990A868286F663F00159819 /* AppDelegate.swift */; };
@@ -58,6 +59,7 @@
 		00FB38140ECBDF9C1231CBF6 /* PianoOverlay.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PianoOverlay.swift; sourceTree = "<group>"; };
 		15C3519032B9556B6AD3044E /* ControlPanel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ControlPanel.swift; sourceTree = "<group>"; };
 		1CBBACBF07E6CA03C9B05FC3 /* BasicPitchInference.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BasicPitchInference.swift; sourceTree = "<group>"; };
+		296FF0EED37A6CFB44FDBBF9 /* VoiceActivityDetector.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceActivityDetector.swift; sourceTree = "<group>"; };
 		43D9FC8B733C2EDA611F0D57 /* VideoProcessor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VideoProcessor.swift; sourceTree = "<group>"; };
 		80E46B18EDE87317291CD818 /* CameraCapture.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CameraCapture.swift; sourceTree = "<group>"; };
 		A600A846F6B8348B5121964A /* MIDIInput.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MIDIInput.swift; sourceTree = "<group>"; };
@@ -150,6 +152,7 @@
 				D393D4C9DA1AD372D102537C /* AudioPitchDetector.swift */,
 				1CBBACBF07E6CA03C9B05FC3 /* BasicPitchInference.swift */,
 				43D9FC8B733C2EDA611F0D57 /* VideoProcessor.swift */,
+				296FF0EED37A6CFB44FDBBF9 /* VoiceActivityDetector.swift */,
 			);
 			path = PianoCam;
 			sourceTree = "<group>";
@@ -282,6 +285,7 @@
 				029C0106ACAA060FC1FDAD13 /* AudioPitchDetector.swift in Sources */,
 				F3A05A1B9C24ED261A06EC34 /* BasicPitchInference.swift in Sources */,
 				9CA655AE16A834084FFD9A3F /* VideoProcessor.swift in Sources */,
+				D265D9D0214945C418D72677 /* VoiceActivityDetector.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

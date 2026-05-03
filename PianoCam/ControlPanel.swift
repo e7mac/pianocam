@@ -85,6 +85,10 @@ struct ControlPanel: View {
                            value: minHoldFloatBinding,
                            range: 0.0 ... 2.0,
                            help: "Each note stays lit for at least this long after detection, regardless of model output.")
+                Toggle("Speech rejection (experimental)", isOn: $state.speechRejectionEnabled)
+                    .toggleStyle(.checkbox)
+                    .controlSize(.small)
+                    .help("Mute speech-like audio chunks before pitch detection. Helps with talking-into-the-mic false positives but may dim quiet piano during overlap.")
             }
         }
         .padding(.horizontal, 16)
