@@ -136,9 +136,30 @@ final class VideoProcessor: ObservableObject {
         let sr = approxSR > 8000 ? approxSR : nativeSR
         NSLog("VideoProcessor: audio samples=\(sampleCount) sr=\(Int(sr))")
 
+        // Optional vocal isolation: run the ML vocal-removal model on the
+        // source audio first. The isolator returns 44.1 kHz mono; we then
+        // resample to 22.05 kHz like the normal path.
+        var preprocessed = allSamples
+        var preprocessedSR = sr
+        if vocalIsolationEnabled {
+            do {
+                let isolator = try VocalIsolator()
+                NSLog("VideoProcessor: vocal isolation — starting (\(allSamples.count) samples @ \(Int(sr)) Hz)")
+                let t0 = Date()
+                preprocessed = isolator.process(samples: allSamples,
+                                                sampleRate: sr) { frac in
+                    Task { @MainActor in self.progress = frac * 0.5 }   // first 50%
+                }
+                preprocessedSR = VocalIsolator.sampleRate
+                NSLog("VideoProcessor: vocal isolation done in \(String(format: "%.1f", Date().timeIntervalSince(t0))) s")
+            } catch {
+                NSLog("VideoProcessor: vocal isolation failed — \(error). Continuing with original audio.")
+            }
+        }
+
         // Resample to 22050 for Basic Pitch.
         let target: Double = 22_050
-        var resampled = Self.linearResample(allSamples, from: sr, to: target)
+        var resampled = Self.linearResample(preprocessed, from: preprocessedSR, to: target)
 
         // Speech rejection: zero out ~100 ms chunks that look speech-like.
         if speechRejectionEnabled {
@@ -158,10 +179,12 @@ final class VideoProcessor: ObservableObject {
         }
 
         let analyzer = try OfflineBasicPitchAnalyzer()
+        let bpProgressBase: Double = vocalIsolationEnabled ? 0.5 : 0
+        let bpProgressSpan: Double = vocalIsolationEnabled ? 0.5 : 1
         let events = analyzer.process(samples: resampled,
                                       sampleRate: target,
                                       settings: settings) { fraction in
-            Task { @MainActor in self.progress = fraction }
+            Task { @MainActor in self.progress = bpProgressBase + bpProgressSpan * fraction }
         }
         return events
     }
@@ -169,6 +192,10 @@ final class VideoProcessor: ObservableObject {
     /// Whether to gate speech-like audio out of the offline analysis. The UI
     /// flips this on `HostState.vadEnabled`; we read it once when processing starts.
     nonisolated(unsafe) var speechRejectionEnabled: Bool = false
+    /// When true, run the audio through `VocalIsolator` (ML-based vocal removal)
+    /// before pitch transcription. Heavier than `speechRejectionEnabled` but
+    /// genuinely separates vocals from music — useful for YouTube material.
+    nonisolated(unsafe) var vocalIsolationEnabled: Bool = false
 
     // MARK: - Video render
 

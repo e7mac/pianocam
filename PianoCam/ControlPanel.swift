@@ -89,6 +89,10 @@ struct ControlPanel: View {
                     .toggleStyle(.checkbox)
                     .controlSize(.small)
                     .help("Mute speech-like audio chunks before pitch detection. Helps with talking-into-the-mic false positives but may dim quiet piano during overlap.")
+                Toggle("Remove vocals (offline only, slow)", isOn: $state.vocalIsolationEnabled)
+                    .toggleStyle(.checkbox)
+                    .controlSize(.small)
+                    .help("Run an ML vocal-isolation model on the source audio before pitch transcription. Big quality win on YouTube material with vocals/talking, but adds ~30s of processing per minute of audio.")
             }
         }
         .padding(.horizontal, 16)

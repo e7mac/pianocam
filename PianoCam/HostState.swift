@@ -48,6 +48,9 @@ final class HostState: ObservableObject {
     @Published var bpSustainedFraction: Float = 0.20
     @Published var bpMinHoldSeconds: Double = 0.4
     @Published var speechRejectionEnabled: Bool = false
+    /// Run a vocal-isolation model over the source audio before pitch
+    /// transcription. ML-based, ~30s/min on Apple Silicon. Offline only.
+    @Published var vocalIsolationEnabled: Bool = false
 
     /// Video processing UI state, mirrored from VideoProcessor.
     @Published var videoProcessing: Bool = false

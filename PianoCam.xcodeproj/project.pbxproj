@@ -16,8 +16,11 @@
 		6A847E38119D23790E0CA259 /* PianoOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00FB38140ECBDF9C1231CBF6 /* PianoOverlay.swift */; };
 		6BB6B2CDCDABBABDE5518FEC /* BasicPitch.mlpackage in Resources */ = {isa = PBXBuildFile; fileRef = 01260C45F190FD778854DE2B /* BasicPitch.mlpackage */; };
 		89F73DA6AA0E84FF5E49D704 /* MIDIInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = A600A846F6B8348B5121964A /* MIDIInput.swift */; };
+		8D8F3EE1E49220A6F53E9E70 /* VocalIsolator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50C67EED9B4E0F5DC0B13C4A /* VocalIsolator.swift */; };
 		9CA655AE16A834084FFD9A3F /* VideoProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43D9FC8B733C2EDA611F0D57 /* VideoProcessor.swift */; };
 		ADCB846C6C9A98B174428CC0 /* BasicPitch.mlpackage in Resources */ = {isa = PBXBuildFile; fileRef = 01260C45F190FD778854DE2B /* BasicPitch.mlpackage */; };
+		B6A18908F74E5CDE0225FB32 /* VocalIsolator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50C67EED9B4E0F5DC0B13C4A /* VocalIsolator.swift */; };
+		C5B892ADE8C7DA2F847E3828 /* VocalIsolator.mlpackage in Resources */ = {isa = PBXBuildFile; fileRef = 2F29E2CB1960E933CF6F7E9E /* VocalIsolator.mlpackage */; };
 		D265D9D0214945C418D72677 /* VoiceActivityDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 296FF0EED37A6CFB44FDBBF9 /* VoiceActivityDetector.swift */; };
 		D99EACCED011E0A4135DBBBA /* BasicPitchModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9618EB103827DEB3B45CBD1D /* BasicPitchModel.swift */; };
 		E94BAC4EB866570DB1D5F60C /* PianoOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00FB38140ECBDF9C1231CBF6 /* PianoOverlay.swift */; };
@@ -31,6 +34,7 @@
 		F990A885286F666500159819 /* com.mayank.pianocam.cameraextension.systemextension in Embed System Extensions */ = {isa = PBXBuildFile; fileRef = F990A87B286F666500159819 /* com.mayank.pianocam.cameraextension.systemextension */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		F990A88B287047FE00159819 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = F990A88A287047FE00159819 /* Config.swift */; };
 		F990A88C287047FE00159819 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = F990A88A287047FE00159819 /* Config.swift */; };
+		FAFFAC64DA77FC5F7B4980FA /* VocalIsolator.mlpackage in Resources */ = {isa = PBXBuildFile; fileRef = 2F29E2CB1960E933CF6F7E9E /* VocalIsolator.mlpackage */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -63,7 +67,9 @@
 		15C3519032B9556B6AD3044E /* ControlPanel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ControlPanel.swift; sourceTree = "<group>"; };
 		1CBBACBF07E6CA03C9B05FC3 /* BasicPitchInference.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BasicPitchInference.swift; sourceTree = "<group>"; };
 		296FF0EED37A6CFB44FDBBF9 /* VoiceActivityDetector.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceActivityDetector.swift; sourceTree = "<group>"; };
+		2F29E2CB1960E933CF6F7E9E /* VocalIsolator.mlpackage */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.mlpackage; path = VocalIsolator.mlpackage; sourceTree = "<group>"; };
 		43D9FC8B733C2EDA611F0D57 /* VideoProcessor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VideoProcessor.swift; sourceTree = "<group>"; };
+		50C67EED9B4E0F5DC0B13C4A /* VocalIsolator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VocalIsolator.swift; sourceTree = "<group>"; };
 		80E46B18EDE87317291CD818 /* CameraCapture.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CameraCapture.swift; sourceTree = "<group>"; };
 		9618EB103827DEB3B45CBD1D /* BasicPitchModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BasicPitchModel.swift; sourceTree = "<group>"; };
 		A600A846F6B8348B5121964A /* MIDIInput.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MIDIInput.swift; sourceTree = "<group>"; };
@@ -108,6 +114,7 @@
 				A8634B9C2FA7DD8300177FBA /* Models */,
 				00FB38140ECBDF9C1231CBF6 /* PianoOverlay.swift */,
 				9618EB103827DEB3B45CBD1D /* BasicPitchModel.swift */,
+				50C67EED9B4E0F5DC0B13C4A /* VocalIsolator.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -116,6 +123,7 @@
 			isa = PBXGroup;
 			children = (
 				01260C45F190FD778854DE2B /* BasicPitch.mlpackage */,
+				2F29E2CB1960E933CF6F7E9E /* VocalIsolator.mlpackage */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -256,6 +264,7 @@
 				F990A86D286F664500159819 /* Assets.xcassets in Resources */,
 				F990A870286F664500159819 /* Main.storyboard in Resources */,
 				ADCB846C6C9A98B174428CC0 /* BasicPitch.mlpackage in Resources */,
+				C5B892ADE8C7DA2F847E3828 /* VocalIsolator.mlpackage in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -264,6 +273,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				6BB6B2CDCDABBABDE5518FEC /* BasicPitch.mlpackage in Resources */,
+				FAFFAC64DA77FC5F7B4980FA /* VocalIsolator.mlpackage in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -288,6 +298,7 @@
 				9CA655AE16A834084FFD9A3F /* VideoProcessor.swift in Sources */,
 				D265D9D0214945C418D72677 /* VoiceActivityDetector.swift in Sources */,
 				33C36A8F31464758BA7AC378 /* BasicPitchModel.swift in Sources */,
+				8D8F3EE1E49220A6F53E9E70 /* VocalIsolator.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -300,6 +311,7 @@
 				F990A88C287047FE00159819 /* Config.swift in Sources */,
 				E94BAC4EB866570DB1D5F60C /* PianoOverlay.swift in Sources */,
 				D99EACCED011E0A4135DBBBA /* BasicPitchModel.swift in Sources */,
+				B6A18908F74E5CDE0225FB32 /* VocalIsolator.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
