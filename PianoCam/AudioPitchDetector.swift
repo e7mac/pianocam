@@ -61,24 +61,34 @@ final class AudioPitchDetector: ObservableObject {
 
     private func installTapAndStart() {
         let input = engine.inputNode
-        let format = input.inputFormat(forBus: 0)
-        guard format.channelCount > 0 else {
-            state = .failed("No input channels available")
+        // On macOS, the input node's output format is the canonical place to
+        // ask for what's flowing into the rest of the engine.
+        let format = input.outputFormat(forBus: 0)
+        NSLog("PianoCam audio: format channels=\(format.channelCount) sampleRate=\(format.sampleRate)")
+        guard format.channelCount > 0, format.sampleRate > 0 else {
+            state = .failed("Input format unavailable (channels=\(format.channelCount), sr=\(format.sampleRate))")
             return
         }
 
-        // 4096 samples ≈ 93 ms at 44.1 kHz, 85 ms at 48 kHz — matches Basic
-        // Pitch's expected hop size.
+        // 4096 samples ≈ 93 ms at 44.1 kHz / 85 ms at 48 kHz.
+        var tapCount = 0
         input.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
+            tapCount += 1
+            if tapCount <= 3 {
+                NSLog("PianoCam audio: tap fired #\(tapCount) frames=\(buffer.frameLength)")
+            }
             self?.analysisQueue.async {
                 self?.analyze(buffer: buffer, sampleRate: format.sampleRate)
             }
         }
 
+        engine.prepare()
         do {
             try engine.start()
             state = .running
+            NSLog("PianoCam audio: engine started")
         } catch {
+            NSLog("PianoCam audio: engine.start failed — \(error)")
             state = .failed(error.localizedDescription)
         }
     }
@@ -95,8 +105,16 @@ final class AudioPitchDetector: ObservableObject {
 
         var rms: Float = 0
         vDSP_rmsqv(channelData, 1, &rms, vDSP_Length(frameLength))
+
+        // Bump to a usable visual range — typical room mic RMS is ~0.005,
+        // shouting is ~0.1; multiply so the meter actually shows movement.
+        let scaled = min(1.0, rms * 30)
         DispatchQueue.main.async { [weak self] in
-            self?.inputLevel = min(1, rms * 5)  // crude scaling for the meter
+            self?.inputLevel = scaled
+        }
+        // Log every ~30 frames so we can see live RMS in Console without spam.
+        if Int.random(in: 0..<30) == 0 {
+            NSLog("PianoCam audio: rms=\(String(format: "%.4f", rms)) scaled=\(String(format: "%.2f", scaled))")
         }
 
         let onsetThreshold: Float = 0.05
