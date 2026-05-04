@@ -243,17 +243,30 @@ final class VocalIsolator {
             loggedStrides = true
         }
 
-        // Output buffer also via the framework-managed accessor — this
-        // properly maps IOSurface / ANE-backed memory for the closure's
-        // duration and copies it into our owned array. Using `dataPointer`
-        // directly here crashes on certain backing memories.
+        // Output buffer via the framework-managed accessor (handles IOSurface
+        // / ANE-backed memory mapping). When the model runs on the ANE,
+        // CoreML often hands back Float16 even though the model spec says
+        // Float32 — branch on the runtime dataType and convert if needed.
         let outCount = outArr.count
         var outScalars = [Float](repeating: 0, count: outCount)
         do {
-            try outArr.withUnsafeBufferPointer(ofType: Float.self) { buf in
-                outScalars.withUnsafeMutableBufferPointer { dst in
-                    dst.baseAddress!.update(from: buf.baseAddress!, count: outCount)
+            switch outArr.dataType {
+            case .float32:
+                try outArr.withUnsafeBufferPointer(ofType: Float.self) { buf in
+                    outScalars.withUnsafeMutableBufferPointer { dst in
+                        dst.baseAddress!.update(from: buf.baseAddress!, count: outCount)
+                    }
                 }
+            case .float16:
+                try outArr.withUnsafeBufferPointer(ofType: Float16.self) { buf in
+                    let src = buf.baseAddress!
+                    for i in 0..<outCount {
+                        outScalars[i] = Float(src[i])
+                    }
+                }
+            default:
+                NSLog("VocalIsolator: unsupported output dataType \(outArr.dataType.rawValue)")
+                return [Float](repeating: 0, count: chunkSize)
             }
         } catch {
             NSLog("VocalIsolator: output buffer access failed — \(error)")
