@@ -195,7 +195,7 @@ final class VocalIsolator {
         // unmapped at the moment we read). withUnsafeMutableBufferPointer
         // guarantees the buffer is valid for the closure's duration.
         do {
-            try inputArr.withUnsafeMutableBufferPointer(ofType: Float.self) { buf in
+            try inputArr.withUnsafeMutableBufferPointer(ofType: Float.self) { buf, _ in
                 let inPtr = buf.baseAddress!
                 for c in 0..<4 {
                     let src: [Float]
@@ -250,7 +250,7 @@ final class VocalIsolator {
         let outCount = outArr.count
         var outScalars = [Float](repeating: 0, count: outCount)
         do {
-            try outArr.withUnsafeBufferPointer(ofType: Float.self) { buf in
+            try outArr.withUnsafeBufferPointer(ofType: Float.self) { buf, _ in
                 outScalars.withUnsafeMutableBufferPointer { dst in
                     dst.baseAddress!.update(from: buf.baseAddress!, count: outCount)
                 }
