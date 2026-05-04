@@ -250,7 +250,7 @@ final class VocalIsolator {
         let outCount = outArr.count
         var outScalars = [Float](repeating: 0, count: outCount)
         do {
-            try outArr.withUnsafeBufferPointer(ofType: Float.self) { buf, _ in
+            try outArr.withUnsafeBufferPointer(ofType: Float.self) { buf in
                 outScalars.withUnsafeMutableBufferPointer { dst in
                     dst.baseAddress!.update(from: buf.baseAddress!, count: outCount)
                 }
