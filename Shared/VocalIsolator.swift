@@ -183,44 +183,49 @@ final class VocalIsolator {
         let inCStride = inStrides[1]
         let inBStride = inStrides[2]
         let inFStride = inStrides[3]
-        let inPtr = inputArr.dataPointer.bindMemory(to: Float.self, capacity: inputArr.count)
         if !loggedStrides {
             NSLog("VocalIsolator: input shape=\(inputArr.shape) strides=\(inputArr.strides) count=\(inputArr.count)")
         }
-        // Periodic per-chunk progress log so we can see exactly which chunk
-        // is being processed if there's a crash.
         if chunkCount <= 3 || chunkCount % 10 == 0 {
             NSLog("VocalIsolator: chunk #\(chunkCount)")
         }
 
-        for c in 0..<4 {
-            let src: [Float]
-            switch c {
-            case 0, 2: src = realLR    // L_real, R_real
-            case 1, 3: src = imagLR    // L_imag, R_imag
-            default: continue
-            }
-            let cBase = c * inCStride
-            // STFT output is laid out [bin * nFrames + frame] row-major.
-            // If the model's input has stride 1 on the time axis we can blast
-            // contiguous bin-rows directly; otherwise fall back to a per-frame
-            // copy with the right stride.
-            if inFStride == 1 {
-                for b in 0..<dimF {
-                    let srcOff = b * segmentSize
-                    let dstOff = cBase + b * inBStride
-                    src.withUnsafeBufferPointer { sp in
-                        let sptr = sp.baseAddress!.advanced(by: srcOff)
-                        inPtr.advanced(by: dstOff).update(from: sptr, count: segmentSize)
+        // Use the framework-managed accessor — `dataPointer` directly is unsafe
+        // for buffers that may be IOSurface- or ANE-backed (the pointer can be
+        // unmapped at the moment we read). withUnsafeMutableBufferPointer
+        // guarantees the buffer is valid for the closure's duration.
+        do {
+            try inputArr.withUnsafeMutableBufferPointer(ofType: Float.self) { buf in
+                let inPtr = buf.baseAddress!
+                for c in 0..<4 {
+                    let src: [Float]
+                    switch c {
+                    case 0, 2: src = realLR    // L_real, R_real
+                    case 1, 3: src = imagLR    // L_imag, R_imag
+                    default: continue
+                    }
+                    let cBase = c * inCStride
+                    if inFStride == 1 {
+                        for b in 0..<dimF {
+                            let srcOff = b * segmentSize
+                            let dstOff = cBase + b * inBStride
+                            src.withUnsafeBufferPointer { sp in
+                                let sptr = sp.baseAddress!.advanced(by: srcOff)
+                                inPtr.advanced(by: dstOff).update(from: sptr, count: segmentSize)
+                            }
+                        }
+                    } else {
+                        for b in 0..<dimF {
+                            for f in 0..<segmentSize {
+                                inPtr[cBase + b * inBStride + f * inFStride] = src[b * segmentSize + f]
+                            }
+                        }
                     }
                 }
-            } else {
-                for b in 0..<dimF {
-                    for f in 0..<segmentSize {
-                        inPtr[cBase + b * inBStride + f * inFStride] = src[b * segmentSize + f]
-                    }
-                }
             }
+        } catch {
+            NSLog("VocalIsolator: input buffer access failed — \(error)")
+            return [Float](repeating: 0, count: chunkSize)
         }
 
         guard let provider = try? MLDictionaryFeatureProvider(dictionary: [inputName: inputArr]),
@@ -238,20 +243,23 @@ final class VocalIsolator {
             loggedStrides = true
         }
 
-        // CoreML's output MLMultiArray is a thin view into memory owned by the
-        // FeatureProvider; ARC may release `out` once `outArr` is unwrapped.
-        // Copy under withExtendedLifetime to a Swift array so the iteration
-        // loop below uses memory we own.
+        // Output buffer also via the framework-managed accessor — this
+        // properly maps IOSurface / ANE-backed memory for the closure's
+        // duration and copies it into our owned array. Using `dataPointer`
+        // directly here crashes on certain backing memories.
         let outCount = outArr.count
         var outScalars = [Float](repeating: 0, count: outCount)
-        withExtendedLifetime(out) {
-            withExtendedLifetime(outArr) {
-                let outPtr = outArr.dataPointer.bindMemory(to: Float.self, capacity: outCount)
+        do {
+            try outArr.withUnsafeBufferPointer(ofType: Float.self) { buf in
                 outScalars.withUnsafeMutableBufferPointer { dst in
-                    dst.baseAddress!.update(from: outPtr, count: outCount)
+                    dst.baseAddress!.update(from: buf.baseAddress!, count: outCount)
                 }
             }
+        } catch {
+            NSLog("VocalIsolator: output buffer access failed — \(error)")
+            return [Float](repeating: 0, count: chunkSize)
         }
+        withExtendedLifetime(out) {}   // keep provider alive through the copy
 
         // Unpack output → real/imag arrays sized [n_bins, n_frames]. Bins
         // dimF..n_bins-1 stay zero (model only outputs up to dimF).
