@@ -14,6 +14,9 @@
 		50E364166E92D49155FDB2B5 /* PianoState.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB15F4627C804220285EE490 /* PianoState.swift */; };
 		5D736BF14559E87C97963652 /* CameraCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E46B18EDE87317291CD818 /* CameraCapture.swift */; };
 		6A847E38119D23790E0CA259 /* PianoOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00FB38140ECBDF9C1231CBF6 /* PianoOverlay.swift */; };
+		6B1A0D7E5A1C4F3C91B9D001 /* PianoKeyboardGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B1A0D7E5A1C4F3C91B9D000 /* PianoKeyboardGeometry.swift */; };
+		6B1A0D7E5A1C4F3C91B9D002 /* PianoKeyboardGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B1A0D7E5A1C4F3C91B9D000 /* PianoKeyboardGeometry.swift */; };
+		6B1A0D7E5A1C4F3C91B9D004 /* PianoKeyboardAlignmentDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B1A0D7E5A1C4F3C91B9D003 /* PianoKeyboardAlignmentDetector.swift */; };
 		6BB6B2CDCDABBABDE5518FEC /* BasicPitch.mlpackage in Resources */ = {isa = PBXBuildFile; fileRef = 01260C45F190FD778854DE2B /* BasicPitch.mlpackage */; };
 		89F73DA6AA0E84FF5E49D704 /* MIDIInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = A600A846F6B8348B5121964A /* MIDIInput.swift */; };
 		8D8F3EE1E49220A6F53E9E70 /* VocalIsolator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50C67EED9B4E0F5DC0B13C4A /* VocalIsolator.swift */; };
@@ -70,6 +73,8 @@
 		2F29E2CB1960E933CF6F7E9E /* VocalIsolator.mlpackage */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.mlpackage; path = VocalIsolator.mlpackage; sourceTree = "<group>"; };
 		43D9FC8B733C2EDA611F0D57 /* VideoProcessor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VideoProcessor.swift; sourceTree = "<group>"; };
 		50C67EED9B4E0F5DC0B13C4A /* VocalIsolator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VocalIsolator.swift; sourceTree = "<group>"; };
+		6B1A0D7E5A1C4F3C91B9D000 /* PianoKeyboardGeometry.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PianoKeyboardGeometry.swift; sourceTree = "<group>"; };
+		6B1A0D7E5A1C4F3C91B9D003 /* PianoKeyboardAlignmentDetector.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PianoKeyboardAlignmentDetector.swift; sourceTree = "<group>"; };
 		80E46B18EDE87317291CD818 /* CameraCapture.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CameraCapture.swift; sourceTree = "<group>"; };
 		9618EB103827DEB3B45CBD1D /* BasicPitchModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BasicPitchModel.swift; sourceTree = "<group>"; };
 		A600A846F6B8348B5121964A /* MIDIInput.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MIDIInput.swift; sourceTree = "<group>"; };
@@ -113,6 +118,7 @@
 			children = (
 				A8634B9C2FA7DD8300177FBA /* Models */,
 				00FB38140ECBDF9C1231CBF6 /* PianoOverlay.swift */,
+				6B1A0D7E5A1C4F3C91B9D000 /* PianoKeyboardGeometry.swift */,
 				9618EB103827DEB3B45CBD1D /* BasicPitchModel.swift */,
 				50C67EED9B4E0F5DC0B13C4A /* VocalIsolator.swift */,
 			);
@@ -160,6 +166,7 @@
 				A600A846F6B8348B5121964A /* MIDIInput.swift */,
 				F137BDA3E7EC8F9B9B3963E0 /* HostState.swift */,
 				15C3519032B9556B6AD3044E /* ControlPanel.swift */,
+				6B1A0D7E5A1C4F3C91B9D003 /* PianoKeyboardAlignmentDetector.swift */,
 				D393D4C9DA1AD372D102537C /* AudioPitchDetector.swift */,
 				1CBBACBF07E6CA03C9B05FC3 /* BasicPitchInference.swift */,
 				43D9FC8B733C2EDA611F0D57 /* VideoProcessor.swift */,
@@ -288,11 +295,13 @@
 				F990A869286F663F00159819 /* AppDelegate.swift in Sources */,
 				F990A88B287047FE00159819 /* Config.swift in Sources */,
 				6A847E38119D23790E0CA259 /* PianoOverlay.swift in Sources */,
+				6B1A0D7E5A1C4F3C91B9D001 /* PianoKeyboardGeometry.swift in Sources */,
 				5D736BF14559E87C97963652 /* CameraCapture.swift in Sources */,
 				50E364166E92D49155FDB2B5 /* PianoState.swift in Sources */,
 				89F73DA6AA0E84FF5E49D704 /* MIDIInput.swift in Sources */,
 				2E7C6AA86994FE88AEBF224B /* HostState.swift in Sources */,
 				426E1CCB277DF3FED07FBE52 /* ControlPanel.swift in Sources */,
+				6B1A0D7E5A1C4F3C91B9D004 /* PianoKeyboardAlignmentDetector.swift in Sources */,
 				029C0106ACAA060FC1FDAD13 /* AudioPitchDetector.swift in Sources */,
 				F3A05A1B9C24ED261A06EC34 /* BasicPitchInference.swift in Sources */,
 				9CA655AE16A834084FFD9A3F /* VideoProcessor.swift in Sources */,
@@ -310,6 +319,7 @@
 				F990A87E286F666500159819 /* PianoCamExtensionProvider.swift in Sources */,
 				F990A88C287047FE00159819 /* Config.swift in Sources */,
 				E94BAC4EB866570DB1D5F60C /* PianoOverlay.swift in Sources */,
+				6B1A0D7E5A1C4F3C91B9D002 /* PianoKeyboardGeometry.swift in Sources */,
 				D99EACCED011E0A4135DBBBA /* BasicPitchModel.swift in Sources */,
 				B6A18908F74E5CDE0225FB32 /* VocalIsolator.swift in Sources */,
 			);
@@ -387,7 +397,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 12.3;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -441,7 +451,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 12.3;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = macosx;
@@ -468,10 +478,12 @@
 				INFOPLIST_KEY_NSMainStoryboardFile = Main;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "PianoCam listens to your acoustic piano so it can light up the keys you play.";
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				MACOSX_DEPLOYMENT_TARGET = 15.6;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.mayank.pianocam;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -498,10 +510,12 @@
 				INFOPLIST_KEY_NSMainStoryboardFile = Main;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "PianoCam listens to your acoustic piano so it can light up the keys you play.";
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				MACOSX_DEPLOYMENT_TARGET = 15.6;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.mayank.pianocam;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -527,7 +541,7 @@
 					"@executable_path/../Frameworks",
 					"@executable_path/../../../../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 12.3;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.mayank.pianocam.cameraextension;
 				PRODUCT_NAME = "$(inherited)";
@@ -554,7 +568,7 @@
 					"@executable_path/../Frameworks",
 					"@executable_path/../../../../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 12.3;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.mayank.pianocam.cameraextension;
 				PRODUCT_NAME = "$(inherited)";

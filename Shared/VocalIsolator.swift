@@ -194,38 +194,33 @@ final class VocalIsolator {
         // for buffers that may be IOSurface- or ANE-backed (the pointer can be
         // unmapped at the moment we read). withUnsafeMutableBufferPointer
         // guarantees the buffer is valid for the closure's duration.
-        do {
-            try inputArr.withUnsafeMutableBufferPointer(ofType: Float.self) { buf, _ in
-                let inPtr = buf.baseAddress!
-                for c in 0..<4 {
-                    let src: [Float]
-                    switch c {
-                    case 0, 2: src = realLR    // L_real, R_real
-                    case 1, 3: src = imagLR    // L_imag, R_imag
-                    default: continue
-                    }
-                    let cBase = c * inCStride
-                    if inFStride == 1 {
-                        for b in 0..<dimF {
-                            let srcOff = b * segmentSize
-                            let dstOff = cBase + b * inBStride
-                            src.withUnsafeBufferPointer { sp in
-                                let sptr = sp.baseAddress!.advanced(by: srcOff)
-                                inPtr.advanced(by: dstOff).update(from: sptr, count: segmentSize)
-                            }
+        inputArr.withUnsafeMutableBufferPointer(ofType: Float.self) { buf, _ in
+            let inPtr = buf.baseAddress!
+            for c in 0..<4 {
+                let src: [Float]
+                switch c {
+                case 0, 2: src = realLR    // L_real, R_real
+                case 1, 3: src = imagLR    // L_imag, R_imag
+                default: continue
+                }
+                let cBase = c * inCStride
+                if inFStride == 1 {
+                    for b in 0..<dimF {
+                        let srcOff = b * segmentSize
+                        let dstOff = cBase + b * inBStride
+                        src.withUnsafeBufferPointer { sp in
+                            let sptr = sp.baseAddress!.advanced(by: srcOff)
+                            inPtr.advanced(by: dstOff).update(from: sptr, count: segmentSize)
                         }
-                    } else {
-                        for b in 0..<dimF {
-                            for f in 0..<segmentSize {
-                                inPtr[cBase + b * inBStride + f * inFStride] = src[b * segmentSize + f]
-                            }
+                    }
+                } else {
+                    for b in 0..<dimF {
+                        for f in 0..<segmentSize {
+                            inPtr[cBase + b * inBStride + f * inFStride] = src[b * segmentSize + f]
                         }
                     }
                 }
             }
-        } catch {
-            NSLog("VocalIsolator: input buffer access failed — \(error)")
-            return [Float](repeating: 0, count: chunkSize)
         }
 
         guard let provider = try? MLDictionaryFeatureProvider(dictionary: [inputName: inputArr]),
@@ -249,27 +244,25 @@ final class VocalIsolator {
         // Float32 — branch on the runtime dataType and convert if needed.
         let outCount = outArr.count
         var outScalars = [Float](repeating: 0, count: outCount)
-        do {
-            switch outArr.dataType {
-            case .float32:
-                try outArr.withUnsafeBufferPointer(ofType: Float.self) { buf in
-                    outScalars.withUnsafeMutableBufferPointer { dst in
-                        dst.baseAddress!.update(from: buf.baseAddress!, count: outCount)
-                    }
+        switch outArr.dataType {
+        case .float32:
+            outArr.withUnsafeBufferPointer(ofType: Float.self) { buf in
+                outScalars.withUnsafeMutableBufferPointer { dst in
+                    dst.baseAddress!.update(from: buf.baseAddress!, count: outCount)
                 }
-            case .float16:
-                try outArr.withUnsafeBufferPointer(ofType: Float16.self) { buf in
-                    let src = buf.baseAddress!
-                    for i in 0..<outCount {
-                        outScalars[i] = Float(src[i])
-                    }
-                }
-            default:
-                NSLog("VocalIsolator: unsupported output dataType \(outArr.dataType.rawValue)")
-                return [Float](repeating: 0, count: chunkSize)
             }
-        } catch {
-            NSLog("VocalIsolator: output buffer access failed — \(error)")
+        case .float16:
+            var src = vImage_Buffer(data: outArr.dataPointer,
+                                   height: 1, width: vImagePixelCount(outCount),
+                                   rowBytes: outCount * 2)
+            outScalars.withUnsafeMutableBufferPointer { dst in
+                var dest = vImage_Buffer(data: dst.baseAddress!, height: 1,
+                                        width: vImagePixelCount(outCount),
+                                        rowBytes: outCount * 4)
+                vImageConvert_Planar16FtoPlanarF(&src, &dest, 0)
+            }
+        default:
+            NSLog("VocalIsolator: unsupported output dataType \(outArr.dataType.rawValue)")
             return [Float](repeating: 0, count: chunkSize)
         }
         withExtendedLifetime(out) {}   // keep provider alive through the copy
