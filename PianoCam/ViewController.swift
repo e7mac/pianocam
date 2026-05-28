@@ -752,7 +752,13 @@ class ViewController: NSViewController {
         let image = CIImage(cvPixelBuffer: frame)
         let imageW = image.extent.width
         let imageH = image.extent.height
-        let scale = max(region.width / imageW, region.height / imageH)
+        // Aspect-fit (not -fill) for the overhead band: show the full
+        // overhead frame with letterboxing when its aspect doesn't match,
+        // rather than clipping top/bottom. Aspect-fill makes the alignment
+        // overlay look misplaced because half the keyboard image is
+        // cropped out of view — especially noticeable with overhead photos
+        // that are taller than the 30%-of-frame band the band gets.
+        let scale = min(region.width / imageW, region.height / imageH)
         let drawRect = CGRect(
             x: region.minX + (region.width - imageW * scale) / 2,
             y: region.minY + (region.height - imageH * scale) / 2,
