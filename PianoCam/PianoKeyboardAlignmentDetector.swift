@@ -78,20 +78,55 @@ final class PianoKeyboardAlignmentDetector {
         let candidates: [Candidate]
     }
 
+    /// Which key class to extract from the image. Different overhead lighting
+    /// conditions favor different classes:
+    ///   - black: clean on light/white backgrounds (rendered diagrams, light
+    ///            backdrop photos). Fails when black keys are connected to a
+    ///            dark backdrop through the gaps between whites.
+    ///   - white: clean on dark backgrounds (most piano photos). Fails when
+    ///            white keys merge into one large light region with no
+    ///            interior boundaries (e.g. CG-rendered keyboards without
+    ///            gaps between white keys).
+    private enum KeyKind { case black, white }
+
     func detect(pixelBuffer: CVPixelBuffer,
                 configuration: PianoKeyboardConfiguration) throws -> PianoKeyboardAlignment? {
         let frameSize = CGSize(width: CVPixelBufferGetWidth(pixelBuffer),
                                height: CVPixelBufferGetHeight(pixelBuffer))
-        let candidates = try detectBlackKeyCandidates(pixelBuffer: pixelBuffer,
-                                                      frameSize: frameSize)
+        // Try both key classes and keep the higher-confidence result. The
+        // overhead of the second pass is small relative to one VNDetectContours
+        // call, and the two classes are complementary across the lighting
+        // conditions we see in practice.
+        let attempts: [PianoKeyboardAlignment?] = [
+            try? attempt(kind: .black,
+                         pixelBuffer: pixelBuffer,
+                         configuration: configuration,
+                         frameSize: frameSize),
+            try? attempt(kind: .white,
+                         pixelBuffer: pixelBuffer,
+                         configuration: configuration,
+                         frameSize: frameSize)
+        ]
+        return attempts.compactMap { $0 }.max { $0.confidence < $1.confidence }
+    }
+
+    private func attempt(kind: KeyKind,
+                         pixelBuffer: CVPixelBuffer,
+                         configuration: PianoKeyboardConfiguration,
+                         frameSize: CGSize) throws -> PianoKeyboardAlignment? {
+        let candidates = try detectCandidates(kind: kind,
+                                              pixelBuffer: pixelBuffer,
+                                              frameSize: frameSize)
         guard candidates.count >= 7 else { return nil }
 
         let ordered = orderedAlongKeyboardAxis(candidates)
-        guard let fit = bestFit(orderedCandidates: ordered,
+        guard let fit = bestFit(kind: kind,
+                                orderedCandidates: ordered,
                                 configuration: configuration,
                                 frameSize: frameSize) else { return nil }
 
-        let confidence = confidenceScore(candidateCount: fit.candidates.count,
+        let confidence = confidenceScore(kind: kind,
+                                         candidateCount: fit.candidates.count,
                                          medianError: fit.medianError,
                                          frameSize: frameSize)
         return PianoKeyboardAlignment(configuration: configuration,
@@ -99,14 +134,15 @@ final class PianoKeyboardAlignmentDetector {
                                       frameSize: frameSize,
                                       confidence: confidence,
                                       medianErrorPixels: fit.medianError,
-                                      matchedBlackKeyCount: fit.candidates.count)
+                                      matchedKeyCount: fit.candidates.count)
     }
 
-    private func detectBlackKeyCandidates(pixelBuffer: CVPixelBuffer,
-                                          frameSize: CGSize) throws -> [Candidate] {
+    private func detectCandidates(kind: KeyKind,
+                                  pixelBuffer: CVPixelBuffer,
+                                  frameSize: CGSize) throws -> [Candidate] {
         let request = VNDetectContoursRequest()
         request.contrastAdjustment = 1.0
-        request.detectsDarkOnLight = true
+        request.detectsDarkOnLight = (kind == .black)
         request.maximumImageDimension = 960
 
         let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer,
@@ -157,7 +193,8 @@ final class PianoKeyboardAlignmentDetector {
         }
 
         if ProcessInfo.processInfo.environment["PIANOCAM_ALIGNMENT_TRACE"] != nil {
-            NSLog("PianoCam: alignment-trace topLevel=%d total=%d accepted=%d rejArea=%d rejAspect=%d rejCorners=%d frame=%dx%d",
+            NSLog("PianoCam: alignment-trace kind=%@ topLevel=%d total=%d accepted=%d rejArea=%d rejAspect=%d rejCorners=%d frame=%dx%d",
+                  kind == .black ? "black" : "white",
                   topLevelCount, totalContours, candidates.count,
                   rejArea, rejAspect, rejCorners,
                   Int(frameSize.width), Int(frameSize.height))
@@ -195,22 +232,23 @@ final class PianoKeyboardAlignmentDetector {
         }
     }
 
-    private func bestFit(orderedCandidates: [Candidate],
+    private func bestFit(kind: KeyKind,
+                         orderedCandidates: [Candidate],
                          configuration: PianoKeyboardConfiguration,
                          frameSize: CGSize) -> Fit? {
         let geometry = PianoKeyboardGeometry(configuration: configuration)
-        let modelBlackKeys = geometry.blackKeys
-        guard modelBlackKeys.count >= 7 else { return nil }
+        let modelKeys = kind == .black ? geometry.blackKeys : geometry.whiteKeys
+        guard modelKeys.count >= 7 else { return nil }
 
-        let usableCount = min(orderedCandidates.count, modelBlackKeys.count)
+        let usableCount = min(orderedCandidates.count, modelKeys.count)
         guard usableCount >= 7 else { return nil }
 
         var best: Fit?
         let candidateWindows = candidateSlices(orderedCandidates, count: usableCount)
 
         for candidates in candidateWindows {
-            for start in 0...(modelBlackKeys.count - candidates.count) {
-                let modelSlice = Array(modelBlackKeys[start..<(start + candidates.count)])
+            for start in 0...(modelKeys.count - candidates.count) {
+                let modelSlice = Array(modelKeys[start..<(start + candidates.count)])
                 evaluate(modelSlice: modelSlice, candidates: candidates, reversed: false, best: &best)
                 evaluate(modelSlice: modelSlice, candidates: candidates, reversed: true, best: &best)
             }
@@ -267,10 +305,13 @@ final class PianoKeyboardAlignmentDetector {
         }
     }
 
-    private func confidenceScore(candidateCount: Int,
+    private func confidenceScore(kind: KeyKind,
+                                 candidateCount: Int,
                                  medianError: CGFloat,
                                  frameSize: CGSize) -> Double {
-        let countScore = min(1, Double(candidateCount) / 18.0)
+        // "Good" candidate count is ~50% of the relevant model: 18 of 36
+        // black keys, 26 of 52 white keys.
+        let countScore = min(1, Double(candidateCount) / (kind == .black ? 18.0 : 26.0))
         let scale = max(frameSize.width, frameSize.height)
         let errorScore = max(0, 1 - Double(medianError / max(1, scale)) / 0.018)
         return max(0, min(1, countScore * 0.45 + errorScore * 0.55))

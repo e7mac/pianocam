@@ -778,7 +778,7 @@ class ViewController: NSViewController {
                 self.hostState.overheadAlignmentStatus = String(
                     format: "fit %.0f%%  %d keys  %.1f px",
                     result.confidence * 100,
-                    result.matchedBlackKeyCount,
+                    result.matchedKeyCount,
                     result.medianErrorPixels
                 )
             } else if self.alignmentTracker.alignment == nil {
@@ -791,7 +791,7 @@ class ViewController: NSViewController {
             if ProcessInfo.processInfo.environment["PIANOCAM_ALIGNMENT_TRACE"] != nil {
                 if let result {
                     NSLog("PianoCam: alignment-trace confidence=%.2f keys=%d error=%.1fpx",
-                          result.confidence, result.matchedBlackKeyCount,
+                          result.confidence, result.matchedKeyCount,
                           Double(result.medianErrorPixels))
                 } else {
                     NSLog("PianoCam: alignment-trace confidence=0.00 keys=0 error=nil")

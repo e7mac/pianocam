@@ -86,6 +86,10 @@ struct PianoKeyboardGeometry {
         keys.filter(\.isBlack)
     }
 
+    var whiteKeys: [PianoKeyGeometry] {
+        keys.filter { !$0.isBlack }
+    }
+
     func key(for noteNumber: Int) -> PianoKeyGeometry? {
         keys.first { $0.noteNumber == noteNumber }
     }
@@ -225,7 +229,7 @@ struct PianoKeyboardAlignment {
     let frameSize: CGSize
     let confidence: Double
     let medianErrorPixels: CGFloat
-    let matchedBlackKeyCount: Int
+    let matchedKeyCount: Int
     let createdAt: Date
 
     private let pathsByMIDINote: [Int: CGPath]
@@ -235,14 +239,14 @@ struct PianoKeyboardAlignment {
          frameSize: CGSize,
          confidence: Double,
          medianErrorPixels: CGFloat,
-         matchedBlackKeyCount: Int,
+         matchedKeyCount: Int,
          createdAt: Date = Date()) {
         self.configuration = configuration
         self.homography = homography
         self.frameSize = frameSize
         self.confidence = confidence
         self.medianErrorPixels = medianErrorPixels
-        self.matchedBlackKeyCount = matchedBlackKeyCount
+        self.matchedKeyCount = matchedKeyCount
         self.createdAt = createdAt
 
         let geometry = PianoKeyboardGeometry(configuration: configuration)
