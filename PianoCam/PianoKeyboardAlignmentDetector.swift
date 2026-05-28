@@ -59,16 +59,18 @@ final class PianoKeyboardAlignmentTracker {
     /// Try to load the last locked alignment for this configuration
     /// from UserDefaults. Call once on tracker init or when the user
     /// reopens the app with the same camera setup.
-    func restoreAlignment(for configuration: PianoKeyboardConfiguration,
-                          frameSize: CGSize) {
-        guard let array = UserDefaults.standard.array(
-            forKey: Self.persistenceKey(for: configuration)) as? [Double],
+    func restoreAlignment(for configuration: PianoKeyboardConfiguration) {
+        let dict = UserDefaults.standard.dictionary(
+            forKey: Self.persistenceKey(for: configuration))
+        guard let array = dict?["h"] as? [Double],
+              let width = dict?["w"] as? Double,
+              let height = dict?["h_size"] as? Double,
               let homography = PianoHomography(fromArray: array)
         else { return }
         let restored = PianoKeyboardAlignment(
             configuration: configuration,
             homography: homography,
-            frameSize: frameSize,
+            frameSize: CGSize(width: width, height: height),
             confidence: 1.0,
             medianErrorPixels: 0,
             matchedKeyCount: 0
@@ -84,7 +86,17 @@ final class PianoKeyboardAlignmentTracker {
     }
 
     private static func persist(_ alignment: PianoKeyboardAlignment) {
-        UserDefaults.standard.set(alignment.homography.asArray,
+        // Save the homography AND the frame size it was fitted to.
+        // drawAlignedHighlights scales by drawRect.width / sourceFrameSize.width,
+        // and the saved frameSize is what gets passed there on restore so
+        // the projection still maps correctly even if the live camera
+        // frame is a different size than when the lock was set.
+        let payload: [String: Any] = [
+            "h": alignment.homography.asArray,
+            "w": Double(alignment.frameSize.width),
+            "h_size": Double(alignment.frameSize.height)
+        ]
+        UserDefaults.standard.set(payload,
                                   forKey: persistenceKey(for: alignment.configuration))
     }
 

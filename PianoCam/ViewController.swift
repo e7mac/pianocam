@@ -338,15 +338,13 @@ class ViewController: NSViewController {
             // Try to restore a previously-locked alignment for this
             // keyboard configuration. The user can override anytime by
             // unlocking; if no saved one exists this is a no-op.
+            // FrameSize comes from the saved payload — the homography
+            // was fit in that pixel space and the renderer normalizes.
             let config = PianoKeyboardConfiguration(
                 keyCount: hostState.overheadKeyCount,
                 lowestMIDINote: hostState.overheadLowestMIDINote
             )
-            // Best-effort: we don't know the actual frame size yet, the
-            // tracker will accept whatever frameSize it was last saved
-            // with. The renderer's drawRect scaling makes this OK.
-            alignmentTracker.restoreAlignment(for: config,
-                                              frameSize: CGSize(width: 1920, height: 1080))
+            alignmentTracker.restoreAlignment(for: config)
             hostState.overheadAlignmentLocked = alignmentTracker.isLocked
             hostState.overheadAlignmentStatus = "Starting overhead camera"
             overheadCameraCapture.setPreferredZoomFactor(0.5)
