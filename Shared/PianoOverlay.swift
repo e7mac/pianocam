@@ -44,6 +44,28 @@ enum PianoOverlay {
         drawPedal(ctx: ctx, rect: pedal, cs: cs, pedals: pedals)
     }
 
+    /// Draws just the 88-key keyboard (no felt, no pedals) filling `rect`.
+    /// Used by the simulated-camera source to produce an overhead piano image
+    /// that's then perspective-warped — pedals don't belong in a top-down view.
+    static func drawKeyboardOnly(into ctx: CGContext,
+                                 rect: CGRect,
+                                 activeNotes: [UInt8: UInt8] = [:]) {
+        let cs = CGColorSpaceCreateDeviceRGB()
+        drawWhiteKeys(ctx: ctx, rect: rect, cs: cs, active: activeNotes)
+        drawBlackKeys(ctx: ctx, rect: rect, cs: cs, active: activeNotes)
+    }
+
+    /// Normalized left/right edges of each white key as a fraction of width.
+    /// Useful as ground truth for an aligner's "did I find the right key
+    /// boundaries" check when paired with the simulator's homography.
+    static var whiteKeyBoundariesNormalized: [(left: CGFloat, right: CGFloat)] {
+        let count = whiteNotes.count
+        let w = 1.0 / CGFloat(count)
+        return (0..<count).map { i in
+            (left: CGFloat(i) * w, right: CGFloat(i + 1) * w)
+        }
+    }
+
     private static let whiteNotes: [UInt8] = {
         var v: [UInt8] = []
         for n: UInt8 in 21...108 where [0,2,4,5,7,9,11].contains(Int(n % 12)) { v.append(n) }

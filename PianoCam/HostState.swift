@@ -49,6 +49,17 @@ final class HostState: ObservableObject {
     @Published var bpMinHoldSeconds: Double = 0.4
     @Published var speechRejectionEnabled: Bool = false
 
+    /// Simulated overhead-piano camera — for developing the auto-aligner
+    /// without needing a real camera + real piano. When on, the real webcam
+    /// stream is bypassed and `SimulatedCameraSource` drives the pipeline.
+    @Published var simulatedCameraEnabled: Bool = false
+    @Published var simRotationDegrees: Double = 0
+    @Published var simKeystone: Double = 0.25
+    @Published var simSkew: Double = 0
+    @Published var simPanX: Double = 0
+    @Published var simPanY: Double = 0
+    @Published var simScale: Double = 0.85
+
     /// Video processing UI state, mirrored from VideoProcessor.
     @Published var videoProcessing: Bool = false
     @Published var videoProcessingPhase: String = ""
@@ -74,4 +85,5 @@ struct HostActions {
     var audioModeChanged: (AudioPitchMode) -> Void
     var processVideo: () -> Void
     var revealOutput: () -> Void
+    var simulatedCameraToggled: (Bool) -> Void
 }

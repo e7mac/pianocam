@@ -20,8 +20,13 @@ class ViewController: NSViewController {
     private var image = NSImage(named: "cham-index")  // legacy fallback
     private var activating: Bool = false
     private let cameraCapture = CameraCapture()
+    private let simulatedCamera = SimulatedCameraSource()
     private var latestCameraFrame: CVPixelBuffer?
     private let frameLock = NSLock()
+    /// Read from any thread (capture queue, sim queue, main). Single-writer
+    /// from main via `applySimEnabled`. Aligned `Bool` reads/writes are
+    /// atomic on Apple platforms.
+    nonisolated(unsafe) private var simActive: Bool = false
     private let pianoState = PianoState()
     private let midiInput = MIDIInput()
     private let previewLayer = AVSampleBufferDisplayLayer()
@@ -299,6 +304,34 @@ class ViewController: NSViewController {
 
     private var audioObservers: [AnyCancellable] = []
     private var bpSettingsObservers: [AnyCancellable] = []
+    private var simParamObservers: [AnyCancellable] = []
+
+    private func currentSimParams() -> SimulatedCameraSource.WarpParams {
+        SimulatedCameraSource.WarpParams(
+            rotationDegrees: CGFloat(hostState.simRotationDegrees),
+            keystone:        CGFloat(hostState.simKeystone),
+            skew:            CGFloat(hostState.simSkew),
+            panX:            CGFloat(hostState.simPanX),
+            panY:            CGFloat(hostState.simPanY),
+            scale:           CGFloat(hostState.simScale))
+    }
+
+    private func pushSimParams() {
+        simulatedCamera.setParams(currentSimParams())
+    }
+
+    private func applySimEnabled(_ on: Bool) {
+        simActive = on
+        if on {
+            simulatedCamera.setParams(currentSimParams())
+            simulatedCamera.start()
+        } else {
+            simulatedCamera.stop()
+            frameLock.lock()
+            latestCameraFrame = nil
+            frameLock.unlock()
+        }
+    }
 
     private func toggleAudio(_ on: Bool) {
         if on {
@@ -367,11 +400,32 @@ class ViewController: NSViewController {
 
         cameraCapture.onFrame = { [weak self] pb in
             guard let self else { return }
+            // Drop real-webcam frames while the sim is driving the pipeline.
+            if self.simActive { return }
             self.frameLock.lock()
             self.latestCameraFrame = pb
             self.frameLock.unlock()
         }
         cameraCapture.start()
+
+        simulatedCamera.onFrame = { [weak self] pb in
+            guard let self else { return }
+            self.frameLock.lock()
+            self.latestCameraFrame = pb
+            self.frameLock.unlock()
+        }
+        // Push initial sim params so the first frame matches the UI.
+        simulatedCamera.setParams(currentSimParams())
+        // Live-update the sim whenever any param slider moves.
+        simParamObservers = [
+            hostState.$simulatedCameraEnabled.sink { [weak self] on in self?.applySimEnabled(on) },
+            hostState.$simRotationDegrees.sink { [weak self] _ in self?.pushSimParams() },
+            hostState.$simKeystone       .sink { [weak self] _ in self?.pushSimParams() },
+            hostState.$simSkew           .sink { [weak self] _ in self?.pushSimParams() },
+            hostState.$simPanX           .sink { [weak self] _ in self?.pushSimParams() },
+            hostState.$simPanY           .sink { [weak self] _ in self?.pushSimParams() },
+            hostState.$simScale          .sink { [weak self] _ in self?.pushSimParams() }
+        ]
 
         midiInput.onEvent = { [weak self] event in
             self?.pianoState.handle(event)
@@ -427,6 +481,9 @@ class ViewController: NSViewController {
             revealOutput: { [weak self] in
                 guard let url = self?.hostState.videoProcessingOutput else { return }
                 NSWorkspace.shared.activateFileViewerSelecting([url])
+            },
+            simulatedCameraToggled: { [weak self] on in
+                self?.hostState.simulatedCameraEnabled = on
             }
         )
         let panel = ControlPanel(state: hostState, actions: actions, previewLayer: previewLayer)
