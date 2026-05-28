@@ -47,7 +47,45 @@ final class PianoKeyboardAlignmentTracker {
     func setLocked(_ value: Bool) {
         lock.lock()
         lockedUnsafe = value
+        let snapshot = alignmentUnsafe
         lock.unlock()
+        // Persist the alignment when the user locks it, so it survives
+        // an app restart. Restoration happens in restoreAlignment(for:).
+        if value, let a = snapshot {
+            Self.persist(a)
+        }
+    }
+
+    /// Try to load the last locked alignment for this configuration
+    /// from UserDefaults. Call once on tracker init or when the user
+    /// reopens the app with the same camera setup.
+    func restoreAlignment(for configuration: PianoKeyboardConfiguration,
+                          frameSize: CGSize) {
+        guard let array = UserDefaults.standard.array(
+            forKey: Self.persistenceKey(for: configuration)) as? [Double],
+              let homography = PianoHomography(fromArray: array)
+        else { return }
+        let restored = PianoKeyboardAlignment(
+            configuration: configuration,
+            homography: homography,
+            frameSize: frameSize,
+            confidence: 1.0,
+            medianErrorPixels: 0,
+            matchedKeyCount: 0
+        )
+        lock.lock()
+        alignmentUnsafe = restored
+        lockedUnsafe = true
+        lock.unlock()
+    }
+
+    private static func persistenceKey(for c: PianoKeyboardConfiguration) -> String {
+        "pianocam.lastAlignment.\(c.keyCount).\(c.lowestMIDINote)"
+    }
+
+    private static func persist(_ alignment: PianoKeyboardAlignment) {
+        UserDefaults.standard.set(alignment.homography.asArray,
+                                  forKey: persistenceKey(for: alignment.configuration))
     }
 
     func reset() {

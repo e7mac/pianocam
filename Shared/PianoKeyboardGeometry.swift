@@ -171,6 +171,31 @@ struct PianoHomography {
     let h20: CGFloat
     let h21: CGFloat
 
+    /// Pack into a flat array for serialization.
+    var asArray: [Double] {
+        [h00, h01, h02, h10, h11, h12, h20, h21].map(Double.init)
+    }
+
+    init?(fromArray a: [Double]) {
+        guard a.count == 8 else { return nil }
+        self.h00 = CGFloat(a[0])
+        self.h01 = CGFloat(a[1])
+        self.h02 = CGFloat(a[2])
+        self.h10 = CGFloat(a[3])
+        self.h11 = CGFloat(a[4])
+        self.h12 = CGFloat(a[5])
+        self.h20 = CGFloat(a[6])
+        self.h21 = CGFloat(a[7])
+    }
+
+    init(h00: CGFloat, h01: CGFloat, h02: CGFloat,
+         h10: CGFloat, h11: CGFloat, h12: CGFloat,
+         h20: CGFloat, h21: CGFloat) {
+        self.h00 = h00; self.h01 = h01; self.h02 = h02
+        self.h10 = h10; self.h11 = h11; self.h12 = h12
+        self.h20 = h20; self.h21 = h21
+    }
+
     func project(_ point: CGPoint) -> CGPoint {
         let x = point.x
         let y = point.y
