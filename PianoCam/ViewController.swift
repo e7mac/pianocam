@@ -20,7 +20,7 @@ class ViewController: NSViewController {
     private var image = NSImage(named: "cham-index")  // legacy fallback
     private var activating: Bool = false
     private let cameraCapture = CameraCapture()
-    private let overheadCameraCapture = CameraCapture()
+    private let overheadCameraCapture: any OverheadFrameSource = ViewController.makeOverheadSource()
     private var latestCameraFrame: CVPixelBuffer?
     private var latestOverheadFrame: CVPixelBuffer?
     private let frameLock = NSLock()
@@ -44,6 +44,25 @@ class ViewController: NSViewController {
     private var sequenceNumber = 0
     private var timer: Timer?
     private var propTimer: Timer?
+
+    /// Picks the overhead-camera source for this run. Reads
+    /// PIANOCAM_OVERHEAD_SIM_IMAGE; if set and resolvable, returns a
+    /// SimulatedOverheadSource. Otherwise returns a real CameraCapture.
+    private static func makeOverheadSource() -> any OverheadFrameSource {
+        if let path = ProcessInfo.processInfo.environment["PIANOCAM_OVERHEAD_SIM_IMAGE"],
+           !path.isEmpty {
+            if let sim = SimulatedOverheadSource(path: path) {
+                NSLog("PianoCam: using simulated overhead source from \(path)")
+                return sim
+            }
+            NSLog("PianoCam: PIANOCAM_OVERHEAD_SIM_IMAGE set but unresolvable, falling back to live camera")
+        }
+        return CameraCapture()
+    }
+
+    private var simulatedOverheadLabel: String? {
+        (overheadCameraCapture as? SimulatedOverheadSource)?.label
+    }
 
     func activateCamera() {
         guard let extensionIdentifier = ViewController._extensionBundle().bundleIdentifier else {
