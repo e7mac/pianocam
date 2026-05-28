@@ -25,6 +25,10 @@ struct ControlPanel: View {
             }
             Divider()
             controlsRow
+            if state.simulatedCameraEnabled {
+                Divider()
+                simulatedCameraSettings
+            }
             if state.audioMode == .basicPitch {
                 Divider()
                 basicPitchSettings
@@ -61,6 +65,92 @@ struct ControlPanel: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
+    }
+
+    private var simulatedCameraSettings: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text("Simulated piano camera")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Reset") {
+                    state.simRotationDegrees = 0
+                    state.simKeystone = 0.25
+                    state.simSkew = 0
+                    state.simPanX = 0
+                    state.simPanY = 0
+                    state.simScale = 0.85
+                    state.simBlur = 0
+                    state.simVignette = 0
+                    state.simNoise = 0
+                }
+                .controlSize(.small)
+                Button("Randomize") {
+                    state.simRotationDegrees = Double.random(in: -15...15)
+                    state.simKeystone = Double.random(in: -0.4...0.5)
+                    state.simSkew = Double.random(in: -0.25...0.25)
+                    state.simPanX = Double.random(in: -0.25...0.25)
+                    state.simPanY = Double.random(in: -0.15...0.15)
+                    state.simScale = Double.random(in: 0.6...1.05)
+                    state.simBlur = Double.random(in: 0...2.5)
+                    state.simVignette = Double.random(in: 0...1.2)
+                    state.simNoise = Double.random(in: 0...0.15)
+                }
+                .controlSize(.small)
+                .help("Pick random plausible camera-misalignment values for testing the aligner.")
+            }
+            simSlider("Rotation (deg)",    value: $state.simRotationDegrees, range: -30 ... 30)
+            simSlider("Keystone (tilt)",   value: $state.simKeystone,        range: -0.6 ... 0.6)
+            simSlider("Skew (yaw)",        value: $state.simSkew,            range: -0.4 ... 0.4)
+            simSlider("Pan X",             value: $state.simPanX,            range: -0.5 ... 0.5)
+            simSlider("Pan Y",             value: $state.simPanY,            range: -0.5 ... 0.5)
+            simSlider("Scale (zoom)",      value: $state.simScale,           range:  0.3 ... 1.5)
+
+            Divider().padding(.vertical, 2)
+
+            HStack(spacing: 8) {
+                Text("Source image")
+                    .font(.system(size: 11))
+                    .frame(width: 140, alignment: .leading)
+                Text(state.simCustomImageName.isEmpty ? "Synthetic 88-key render"
+                                                     : state.simCustomImageName)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
+                Button("Load image…", action: actions.loadSimImage)
+                    .controlSize(.small)
+                    .help("Pick a photo of a real piano keyboard to use as the warp source.")
+                Button("Clear", action: actions.clearSimImage)
+                    .controlSize(.small)
+                    .disabled(state.simCustomImageName.isEmpty)
+            }
+
+            simSlider("Blur (px)",         value: $state.simBlur,            range:  0.0 ... 6.0)
+            simSlider("Vignette",          value: $state.simVignette,        range:  0.0 ... 2.0)
+            simSlider("Noise",             value: $state.simNoise,           range:  0.0 ... 0.4)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+    }
+
+    private func simSlider(_ title: String,
+                           value: Binding<Double>,
+                           range: ClosedRange<Double>) -> some View {
+        HStack(spacing: 12) {
+            Text(title)
+                .font(.system(size: 11))
+                .frame(width: 140, alignment: .leading)
+            Slider(value: value, in: range)
+                .controlSize(.small)
+                .frame(maxWidth: 320)
+            Text(String(format: "%.2f", value.wrappedValue))
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .frame(width: 50, alignment: .trailing)
+        }
     }
 
     private var basicPitchSettings: some View {
@@ -176,9 +266,17 @@ struct ControlPanel: View {
     private var controlsRow: some View {
         HStack(spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("CAMERA")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    Text("CAMERA")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Toggle("Sim", isOn: simBinding)
+                        .toggleStyle(.switch)
+                        .controlSize(.mini)
+                        .help("Use a synthetic overhead piano stream instead of the real webcam — for developing the auto-aligner without a camera + piano set up.")
+                }
+                .frame(width: 260)
                 Picker("", selection: cameraBinding) {
                     if state.cameras.isEmpty {
                         Text("No cameras found").tag(String?.none)
@@ -189,6 +287,7 @@ struct ControlPanel: View {
                 }
                 .labelsHidden()
                 .frame(width: 260)
+                .disabled(state.simulatedCameraEnabled)
             }
 
             VStack(alignment: .leading, spacing: 4) {
@@ -263,6 +362,13 @@ struct ControlPanel: View {
                 .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(.secondary)
         }
+    }
+
+    private var simBinding: Binding<Bool> {
+        Binding(
+            get: { state.simulatedCameraEnabled },
+            set: { actions.simulatedCameraToggled($0) }
+        )
     }
 
     private var cameraBinding: Binding<String?> {
