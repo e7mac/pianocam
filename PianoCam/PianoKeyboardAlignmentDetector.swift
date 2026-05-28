@@ -115,11 +115,24 @@ final class PianoKeyboardAlignmentDetector {
         try handler.perform([request])
         guard let observation = request.results?.first as? VNContoursObservation else { return [] }
 
-        let contours = observation.topLevelContours
+        // Walk the full contour tree, not just the top level. Vision returns
+        // a hierarchical tree where a contour's `childContours` are the
+        // contours enclosed by it. When the keyboard sits on a dark
+        // background (common for overhead photos), the outermost dark
+        // contour is the entire backdrop and all 36 black keys end up as
+        // grandchildren of it — invisible if we only walk roots. Each
+        // candidate is filtered independently by area/aspect, so descending
+        // costs only the contours that pass the cheap area check anyway.
         let frameArea = max(1, frameSize.width * frameSize.height)
         var candidates: [Candidate] = []
         var rejArea = 0, rejAspect = 0, rejCorners = 0
-        for contour in contours {
+        var totalContours = 0
+        var stack: [VNContour] = observation.topLevelContours
+        let topLevelCount = stack.count
+        while let contour = stack.popLast() {
+            totalContours += 1
+            stack.append(contentsOf: contour.childContours)
+
             let normalized = contour.normalizedPath.boundingBoxOfPath
             guard normalized.width > 0, normalized.height > 0 else { continue }
 
@@ -144,8 +157,9 @@ final class PianoKeyboardAlignmentDetector {
         }
 
         if ProcessInfo.processInfo.environment["PIANOCAM_ALIGNMENT_TRACE"] != nil {
-            NSLog("PianoCam: alignment-trace topLevelContours=%d accepted=%d rejArea=%d rejAspect=%d rejCorners=%d frame=%dx%d",
-                  contours.count, candidates.count, rejArea, rejAspect, rejCorners,
+            NSLog("PianoCam: alignment-trace topLevel=%d total=%d accepted=%d rejArea=%d rejAspect=%d rejCorners=%d frame=%dx%d",
+                  topLevelCount, totalContours, candidates.count,
+                  rejArea, rejAspect, rejCorners,
                   Int(frameSize.width), Int(frameSize.height))
         }
         return Array(candidates
