@@ -327,9 +327,11 @@ class ViewController: NSViewController {
 
     private var audioObservers: [AnyCancellable] = []
     private var bpSettingsObservers: [AnyCancellable] = []
+    private var alignmentLockObserver: AnyCancellable?
 
     private func toggleOverheadPiano(_ on: Bool) {
         hostState.overheadKeyboardEnabled = on
+        hostState.overheadAlignmentLocked = false
         alignmentTracker.reset()
         handMaskDetector.reset()
         hostState.overheadAlignmentConfidence = 0
@@ -453,6 +455,9 @@ class ViewController: NSViewController {
                 self?.audioDetector.basicPitchSettings.minHoldSeconds = v
             }
         ]
+        alignmentLockObserver = hostState.$overheadAlignmentLocked.sink { [weak self] locked in
+            self?.alignmentTracker.setLocked(locked)
+        }
         midiInput.onSourcesChanged = { [weak self] names in
             self?.hostState.midiSources = names
         }

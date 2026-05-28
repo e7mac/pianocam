@@ -41,6 +41,7 @@ final class HostState: ObservableObject {
     @Published var overheadLowestMIDINote: Int = 21
     @Published var overheadAlignmentConfidence: Double = 0
     @Published var overheadAlignmentStatus: String = "Off"
+    @Published var overheadAlignmentLocked: Bool = false
     /// When non-nil, the overhead source is the dev-only image simulator;
     /// the camera picker should be hidden and this label shown instead.
     @Published var simulatedOverheadLabel: String? = nil

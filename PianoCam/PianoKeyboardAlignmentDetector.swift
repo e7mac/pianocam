@@ -23,6 +23,10 @@ final class PianoKeyboardAlignmentTracker {
     /// EMA-smoothed alignment separately so we can roll back to the
     /// last detector confidence when the homography is reused.
     private var alignmentUnsafe: PianoKeyboardAlignment?
+    /// When locked, submit() returns the stored alignment without
+    /// running detection. Users can hit "Lock" once the auto-fit is
+    /// where they want it to stop subtle drift during a session.
+    private var lockedUnsafe = false
 
     /// Smoothing factor for the EMA. 1.0 = no smoothing (each detection
     /// fully replaces); 0.0 = ignore new detections entirely. 0.35 lets
@@ -35,9 +39,21 @@ final class PianoKeyboardAlignmentTracker {
         return alignmentUnsafe
     }
 
+    var isLocked: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return lockedUnsafe
+    }
+
+    func setLocked(_ value: Bool) {
+        lock.lock()
+        lockedUnsafe = value
+        lock.unlock()
+    }
+
     func reset() {
         lock.lock()
         alignmentUnsafe = nil
+        lockedUnsafe = false
         lock.unlock()
         lastAttempt = .distantPast
     }
@@ -46,6 +62,7 @@ final class PianoKeyboardAlignmentTracker {
                 configuration: PianoKeyboardConfiguration,
                 minimumInterval: TimeInterval = 0.75,
                 completion: @escaping (PianoKeyboardAlignment?) -> Void) {
+        if isLocked { return }
         let now = Date()
         guard !inFlight, now.timeIntervalSince(lastAttempt) >= minimumInterval else { return }
         inFlight = true

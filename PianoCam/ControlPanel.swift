@@ -304,6 +304,12 @@ struct ControlPanel: View {
                 .controlSize(.small)
                 .disabled(!state.overheadKeyboardEnabled)
 
+            Toggle("Lock", isOn: $state.overheadAlignmentLocked)
+                .toggleStyle(.checkbox)
+                .controlSize(.small)
+                .disabled(!state.overheadKeyboardEnabled)
+                .help("Freeze the current alignment. Detection stops running and the overlay stops drifting between fits.")
+
             Text(state.overheadAlignmentStatus)
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(state.overheadAlignmentConfidence >= 0.55 ? .green : .secondary)
