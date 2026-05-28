@@ -855,11 +855,34 @@ class ViewController: NSViewController {
         ctx.saveGState()
         ctx.clip(to: clipRegion)
 
-        // Debug: outline every key so the alignment fit is visible
-        // without needing MIDI input. Enabled by env var. Black keys
-        // get a contrasting yellow so they stand out from the red
-        // white-key outlines.
+        // Debug: outline every key + landmark middle C in green so we
+        // can see whether the overlay rotation, scale, and position
+        // line up with the real keyboard.
         if ProcessInfo.processInfo.environment["PIANOCAM_DEBUG_OVERLAY"] != nil {
+            // Draw the keyboard's centerline projected from the model:
+            // a line from the leftmost-key model center to the rightmost.
+            ctx.saveGState()
+            ctx.setStrokeColor(CGColor(red: 0, green: 1, blue: 0.4, alpha: 0.6))
+            ctx.setLineWidth(2)
+            let lowestN = alignment.configuration.lowestMIDINote
+            let highestN = alignment.configuration.highestMIDINote
+            if let leftPath = alignment.screenPolygonForMIDINote(noteNumber: lowestN)?.copy(using: &transform),
+               let rightPath = alignment.screenPolygonForMIDINote(noteNumber: highestN)?.copy(using: &transform) {
+                let lb = leftPath.boundingBoxOfPath
+                let rb = rightPath.boundingBoxOfPath
+                ctx.move(to: CGPoint(x: lb.midX, y: lb.midY))
+                ctx.addLine(to: CGPoint(x: rb.midX, y: rb.midY))
+                ctx.strokePath()
+            }
+            // Mark middle C (MIDI 60) in green so we have a fixed
+            // landmark to compare against the actual photo.
+            if let midC = alignment.screenPolygonForMIDINote(noteNumber: 60)?.copy(using: &transform) {
+                ctx.setStrokeColor(CGColor(red: 0, green: 1, blue: 0.2, alpha: 1))
+                ctx.setLineWidth(4)
+                ctx.addPath(midC)
+                ctx.strokePath()
+            }
+            ctx.restoreGState()
             let lowest = alignment.configuration.lowestMIDINote
             let highest = alignment.configuration.highestMIDINote
             ctx.saveGState()
