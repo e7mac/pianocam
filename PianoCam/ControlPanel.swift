@@ -266,17 +266,24 @@ struct ControlPanel: View {
                 .toggleStyle(.switch)
                 .controlSize(.small)
 
-            Picker("", selection: overheadCameraBinding) {
-                if state.cameras.isEmpty {
-                    Text("No cameras found").tag(String?.none)
+            if let simLabel = state.simulatedOverheadLabel {
+                Text("Simulated — \(simLabel)")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 260, alignment: .leading)
+            } else {
+                Picker("", selection: overheadCameraBinding) {
+                    if state.cameras.isEmpty {
+                        Text("No cameras found").tag(String?.none)
+                    }
+                    ForEach(state.cameras, id: \.uniqueID) { d in
+                        Text(d.localizedName).tag(String?.some(d.uniqueID))
+                    }
                 }
-                ForEach(state.cameras, id: \.uniqueID) { d in
-                    Text(d.localizedName).tag(String?.some(d.uniqueID))
-                }
+                .labelsHidden()
+                .frame(width: 260)
+                .disabled(!state.overheadKeyboardEnabled)
             }
-            .labelsHidden()
-            .frame(width: 260)
-            .disabled(!state.overheadKeyboardEnabled)
 
             Picker("Keys", selection: $state.overheadKeyCount) {
                 ForEach([88, 76, 61, 49, 25], id: \.self) { count in

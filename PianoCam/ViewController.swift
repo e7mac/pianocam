@@ -406,6 +406,7 @@ class ViewController: NSViewController {
         hostState.selectedCameraID = hostState.cameras.first?.uniqueID
         hostState.selectedOverheadCameraID = hostState.cameras.dropFirst().first?.uniqueID
             ?? hostState.cameras.first?.uniqueID
+        hostState.simulatedOverheadLabel = simulatedOverheadLabel
         hostState.audioInputs = AudioPitchDetector.availableInputs
         hostState.selectedAudioInputID = AVCaptureDevice.default(for: .audio)?.uniqueID
             ?? hostState.audioInputs.first?.uniqueID
