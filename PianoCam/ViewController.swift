@@ -962,16 +962,22 @@ class ViewController: NSViewController {
             keyCount: hostState.overheadKeyCount,
             lowestMIDINote: hostState.overheadLowestMIDINote
         )
-        // Model corners of the white-key keyboard rectangle. y=0 is the
-        // back of the keyboard (display top); y=1 is the front (display
-        // bottom). Match the click order: TL, TR, BR, BL.
+        // Model coords convention (verified by inspecting working
+        // alignments on real overhead frames): y=0 is the FRONT of
+        // the keyboard (player side = bottom of an overhead display);
+        // y=1 is the BACK (top of display). x runs left to right in
+        // white-key widths. So click order TL, TR, BR, BL maps to:
+        //   TL (back-left)   → (0, 1)
+        //   TR (back-right)  → (wCount, 1)
+        //   BR (front-right) → (wCount, 0)
+        //   BL (front-left)  → (0, 0)
         let geometry = PianoKeyboardGeometry(configuration: config)
         let wCount = CGFloat(geometry.whiteKeyCount)
         let modelCorners: [CGPoint] = [
-            CGPoint(x: 0,      y: 0),  // TL
-            CGPoint(x: wCount, y: 0),  // TR
-            CGPoint(x: wCount, y: 1),  // BR
-            CGPoint(x: 0,      y: 1),  // BL
+            CGPoint(x: 0,      y: 1),  // TL = back-left
+            CGPoint(x: wCount, y: 1),  // TR = back-right
+            CGPoint(x: wCount, y: 0),  // BR = front-right
+            CGPoint(x: 0,      y: 0),  // BL = front-left
         ]
         guard let homography = PianoHomography.fitAffine(
             modelPoints: modelCorners,
