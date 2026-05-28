@@ -403,11 +403,13 @@ final class PianoKeyboardAlignmentDetector {
                         continue
                     }
 
-                    // Inlier search: for each model key, find nearest candidate.
-                    // Start with a generous (coarse) threshold to seed the
-                    // refit even when the linear-interp hypothesis is off by
-                    // a key or two. After refitting we re-check inliers with
-                    // a tighter threshold to score the final fit.
+                    // Inlier search: each model key picks its nearest
+                    // candidate. We allow multiple model keys to share the
+                    // same candidate — in practice that gives a richer
+                    // (over-determined) least-squares refit. The
+                    // refit-and-confirm pass below drops any inliers that
+                    // the refitted homography pushes past threshold, which
+                    // is what eliminates the wild post-refit outliers.
                     func inliers(under threshold: CGFloat,
                                  using homography: PianoHomography)
                         -> [(PianoKeyGeometry, Candidate)] {
@@ -463,25 +465,62 @@ final class PianoKeyboardAlignmentDetector {
                         continue
                     }
 
-                    var errors: [CGFloat] = []
-                    errors.reserveCapacity(fine.count)
+                    // Confirm inliers against the refit homography. The
+                    // refit can move the fit by several keys' worth, so
+                    // some "fine" inliers picked against hMid may now lie
+                    // far from any model projection under hFinal. Drop
+                    // those before scoring; if too few survive, fall back
+                    // to the pre-confirm set so we don't regress on frames
+                    // where the refit is sensible but tightens the fit
+                    // enough to clip otherwise-valid points.
+                    var confirmed: [(PianoKeyGeometry, Candidate, CGFloat)] = []
                     for (modelKey, cand) in fine {
                         let p = hFinal.project(modelKey.modelCenter)
-                        errors.append(hypot(cand.center.x - p.x, cand.center.y - p.y))
+                        let d = hypot(cand.center.x - p.x, cand.center.y - p.y)
+                        if d <= fineThreshold {
+                            confirmed.append((modelKey, cand, d))
+                        }
                     }
+                    if confirmed.count < 7 {
+                        // Fallback: keep fine inliers but recompute their
+                        // distances against hFinal so the score reflects
+                        // the actual fit, not the stale hMid values.
+                        for (modelKey, cand) in fine {
+                            let p = hFinal.project(modelKey.modelCenter)
+                            let d = hypot(cand.center.x - p.x, cand.center.y - p.y)
+                            confirmed.append((modelKey, cand, d))
+                        }
+                    }
+
+                    var errors: [CGFloat] = confirmed.map { $0.2 }
                     errors.sort()
                     let median = errors[errors.count / 2]
+
+                    if ProcessInfo.processInfo.environment["PIANOCAM_ALIGNMENT_TRACE_DETAIL"] != nil
+                        && (best == nil || fine.count > (best?.candidates.count ?? 0)) {
+                        let summary = errors.map { String(format: "%.0f", Double($0)) }.joined(separator: ",")
+                        NSLog("PianoCam: alignment-trace fit-detail kind=%@ mFirst=%d mLast=%d inliers=%d errors=[%@]",
+                              kind == .black ? "black" : "white",
+                              mFirst, mLast, fine.count, summary)
+                    }
                     let fit = Fit(homography: hFinal,
                                   medianError: median,
-                                  candidates: fine.map { $0.1 })
-                    // Prefer more inliers; on ties prefer lower median error.
-                    if let bf = best {
-                        if fit.candidates.count > bf.candidates.count ||
-                            (fit.candidates.count == bf.candidates.count &&
-                             fit.medianError < bf.medianError) {
-                            best = fit
-                        }
-                    } else {
+                                  candidates: confirmed.map { $0.1 })
+                    // Rank by the same confidence formula the final
+                    // output uses, so a tight 12-inlier fit (e.g. 14 px
+                    // error) beats a loose 20-inlier one (e.g. 114 px).
+                    // Count alone would let the loose fit win on inlier
+                    // count, which is the wrong answer for actually
+                    // rendering aligned key highlights.
+                    func score(of f: Fit) -> Double {
+                        let countScore = min(1.0, Double(f.candidates.count)
+                                             / (kind == .black ? 18.0 : 26.0))
+                        let frameScale = Double(max(frameSize.width, frameSize.height))
+                        let errorScore = max(0.0,
+                            1.0 - Double(f.medianError) / frameScale / 0.018)
+                        return countScore * 0.45 + errorScore * 0.55
+                    }
+                    if best.map({ score(of: fit) > score(of: $0) }) ?? true {
                         best = fit
                     }
                 }
