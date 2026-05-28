@@ -8,21 +8,37 @@
 #   tools/run-with-sim-overhead.sh /path/to/image.jpg              # single image
 #   tools/run-with-sim-overhead.sh /path/to/dir-of-images/         # directory (cycles every 3s)
 #
-# Builds if needed, then launches the Debug app with the env var set.
-# Toggle "Overhead piano" in the control panel — the camera picker is
-# replaced by "Simulated — <name>" and the alignment detector runs over
-# the supplied image.
+# PianoCam is sandboxed — absolute paths outside the app's container can't
+# be read even though `fileExists` may return true via the symlinked
+# ~/Pictures. This script mirrors the supplied file or directory into the
+# container's real (non-symlinked) Documents folder and passes a
+# tilde-relative path so the app resolves it against NSHomeDirectory()
+# (which inside the sandbox IS the container).
 
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-DEFAULT_IMAGE="$HOME/Pictures/pianocam-sim/overhead_piano.jpg"
-SIM_TARGET="${1:-$DEFAULT_IMAGE}"
+DEFAULT_SOURCE="$HOME/Pictures/pianocam-sim/overhead_piano.jpg"
+SRC="${1:-$DEFAULT_SOURCE}"
 
-if [[ ! -e "$SIM_TARGET" ]]; then
-  echo "error: $SIM_TARGET does not exist" >&2
+if [[ ! -e "$SRC" ]]; then
+  echo "error: $SRC does not exist" >&2
   exit 1
+fi
+
+CONTAINER="$HOME/Library/Containers/com.mayank.pianocam/Data/Documents/pianocam-sim"
+mkdir -p "$CONTAINER"
+
+if [[ -d "$SRC" ]]; then
+  # directory mode — mirror contents
+  rsync -a --delete --include='*.jpg' --include='*.jpeg' --include='*.png' --exclude='*' \
+        "$SRC/" "$CONTAINER/"
+  REL_PATH="~/Documents/pianocam-sim"
+else
+  BASENAME="$(basename "$SRC")"
+  cp -f "$SRC" "$CONTAINER/$BASENAME"
+  REL_PATH="~/Documents/pianocam-sim/$BASENAME"
 fi
 
 DERIVED="$HOME/Library/Developer/Xcode/DerivedData"
@@ -34,9 +50,12 @@ if [[ -z "$APP_PATH" ]] || [[ ! -d "$APP_PATH" ]]; then
   APP_PATH="$(find "$DERIVED" -name PianoCam.app -path '*/Debug/*' -maxdepth 6 2>/dev/null | head -1)"
 fi
 
-echo "Launching $APP_PATH"
-echo "PIANOCAM_OVERHEAD_SIM_IMAGE=$SIM_TARGET"
+echo "Source:    $SRC"
+echo "Container: $CONTAINER"
+echo "App:       $APP_PATH"
+echo "Env var:   PIANOCAM_OVERHEAD_SIM_IMAGE=$REL_PATH"
 
 pkill -x PianoCam 2>/dev/null || true
 sleep 0.3
-open --env "PIANOCAM_OVERHEAD_SIM_IMAGE=$SIM_TARGET" "$APP_PATH"
+PIANOCAM_OVERHEAD_SIM_IMAGE="$REL_PATH" "$APP_PATH/Contents/MacOS/PianoCam" &
+disown
