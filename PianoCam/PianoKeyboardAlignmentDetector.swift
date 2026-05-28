@@ -124,12 +124,18 @@ final class PianoKeyboardAlignmentDetector {
         }
         guard raw.count >= 7 else { return nil }
 
-        let candidates = filterByCollinearity(raw)
+        // Pipeline of progressively-tightening filters. Each stage drops
+        // the obvious outliers for the next stage to see a cleaner set.
+        let afterEdges = filterAwayFromEdges(raw, frameSize: frameSize)
+        let afterHeight = filterByConsistentHeight(afterEdges)
+        let afterY = filterByDominantYBand(afterHeight)
+        let candidates = filterByCollinearity(afterY)
         guard candidates.count >= 7 else { return nil }
         if ProcessInfo.processInfo.environment["PIANOCAM_ALIGNMENT_TRACE"] != nil,
            candidates.count != raw.count {
-            NSLog("PianoCam: alignment-trace collinearity kind=%@ raw=%d kept=%d",
-                  kind == .black ? "black" : "white", raw.count, candidates.count)
+            NSLog("PianoCam: alignment-trace filters kind=%@ raw=%d edges=%d height=%d yband=%d collin=%d",
+                  kind == .black ? "black" : "white",
+                  raw.count, afterEdges.count, afterHeight.count, afterY.count, candidates.count)
         }
 
         let ordered = orderedAlongKeyboardAxis(candidates)
@@ -266,6 +272,51 @@ final class PianoKeyboardAlignmentDetector {
         if abs(axis.x) < 0.2 { axis = CGPoint(x: -axis.y, y: axis.x) }
         if axis.x < 0 { axis = CGPoint(x: -axis.x, y: -axis.y) }
         return (center, axis)
+    }
+
+    /// Drop candidates whose bbox height is far from the median. Real
+    /// keys of the same kind have similar heights; outliers (felt strips,
+    /// wood grain, hand shadows) are usually shorter or much taller. This
+    /// step runs before collinearity because the height outliers also
+    /// pull the principal axis around.
+    private func filterByConsistentHeight(_ candidates: [Candidate]) -> [Candidate] {
+        guard candidates.count >= 7 else { return candidates }
+        let heights = candidates.map { $0.bounds.height }.sorted()
+        let medianHeight = heights[heights.count / 2]
+        let lo = medianHeight * 0.6
+        let hi = medianHeight * 1.5
+        let filtered = candidates.filter { lo <= $0.bounds.height && $0.bounds.height <= hi }
+        return filtered.count >= 7 ? filtered : candidates
+    }
+
+    /// Drop candidates whose center y is far from the dominant y cluster.
+    /// Real keys sit at one keyboard centerline; false positives are
+    /// scattered across the image y range. Take the median y, then keep
+    /// candidates within ±half a key-height of it.
+    private func filterByDominantYBand(_ candidates: [Candidate]) -> [Candidate] {
+        guard candidates.count >= 7 else { return candidates }
+        let ys = candidates.map { $0.center.y }.sorted()
+        let medianY = ys[ys.count / 2]
+        let heights = candidates.map { $0.bounds.height }.sorted()
+        let medianHeight = heights[heights.count / 2]
+        let band = medianHeight * 0.6
+        let filtered = candidates.filter { abs($0.center.y - medianY) <= band }
+        return filtered.count >= 7 ? filtered : candidates
+    }
+
+    /// Drop candidates that touch the image edge — those are almost
+    /// always cropping artifacts or border features, not keys.
+    private func filterAwayFromEdges(_ candidates: [Candidate],
+                                     frameSize: CGSize) -> [Candidate] {
+        guard candidates.count >= 7 else { return candidates }
+        let margin = max(min(frameSize.width, frameSize.height) * 0.01, 4)
+        let filtered = candidates.filter {
+            $0.bounds.minX >= margin &&
+            $0.bounds.minY >= margin &&
+            $0.bounds.maxX <= frameSize.width - margin &&
+            $0.bounds.maxY <= frameSize.height - margin
+        }
+        return filtered.count >= 7 ? filtered : candidates
     }
 
     /// Drop candidates that lie too far off the keyboard's centerline.
