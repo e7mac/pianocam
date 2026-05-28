@@ -886,6 +886,41 @@ class ViewController: NSViewController {
                                   activeNotes: activeNotes,
                                   handMask: handMaskDetector.mask)
         }
+
+        // Visual feedback during calibration: orange dot at each
+        // captured click, labeled 1-4 so the user can see which corners
+        // have been registered.
+        if hostState.calibrationStep > 0 && !calibrationClicks.isEmpty {
+            let sx = drawRect.width / max(1, imageW)
+            let sy = drawRect.height / max(1, imageH)
+            ctx.saveGState()
+            ctx.clip(to: region)
+            ctx.setFillColor(CGColor(red: 1, green: 0.5, blue: 0, alpha: 0.9))
+            for (i, pt) in calibrationClicks.enumerated() {
+                // calibrationClicks is in Vision bottom-origin pixel
+                // space; flip back to top-origin for drawing.
+                let topY = imageH - pt.y
+                let cx = drawRect.minX + pt.x * sx
+                let cy = drawRect.minY + topY * sy
+                let radius: CGFloat = 8
+                ctx.fillEllipse(in: CGRect(x: cx - radius, y: cy - radius,
+                                           width: radius * 2, height: radius * 2))
+                let label = "\(i + 1)" as NSString
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .font: NSFont.boldSystemFont(ofSize: 12),
+                    .foregroundColor: NSColor.white
+                ]
+                let size = label.size(withAttributes: attrs)
+                let textRect = CGRect(x: cx - size.width / 2,
+                                      y: cy - size.height / 2,
+                                      width: size.width, height: size.height)
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+                label.draw(in: textRect, withAttributes: attrs)
+                NSGraphicsContext.restoreGraphicsState()
+            }
+            ctx.restoreGState()
+        }
     }
 
     /// Map a preview-view click (top-left origin) to a point in the
