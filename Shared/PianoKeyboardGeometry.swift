@@ -197,6 +197,24 @@ struct PianoHomography {
         return path
     }
 
+    /// Element-wise linear blend with `other`. `alpha` is the weight on
+    /// `self`; (1 - alpha) on `other`. Used by the alignment tracker for
+    /// EMA smoothing of the homography across detections — keeps the
+    /// rendered overlay locked-on instead of jittering between fits.
+    func blended(with other: PianoHomography, alpha: CGFloat) -> PianoHomography {
+        let inv = 1 - alpha
+        return PianoHomography(
+            h00: alpha * h00 + inv * other.h00,
+            h01: alpha * h01 + inv * other.h01,
+            h02: alpha * h02 + inv * other.h02,
+            h10: alpha * h10 + inv * other.h10,
+            h11: alpha * h11 + inv * other.h11,
+            h12: alpha * h12 + inv * other.h12,
+            h20: alpha * h20 + inv * other.h20,
+            h21: alpha * h21 + inv * other.h21
+        )
+    }
+
     /// Fit a 6-parameter affine transform (no perspective). For overhead
     /// piano photos where the keyboard is far enough from the camera that
     /// perspective foreshortening is small, this is more stable than the
@@ -381,5 +399,20 @@ struct PianoKeyboardAlignment {
 
     func screenPolygonForMIDINote(noteNumber: Int) -> CGPath? {
         pathsByMIDINote[noteNumber]
+    }
+
+    /// Return a new alignment whose homography is an EMA blend of the
+    /// current (raw detection) with `prior`. Keeps the raw detection's
+    /// confidence and matched-key count so the status line still
+    /// reflects the actual detection quality.
+    func smoothed(towards prior: PianoKeyboardAlignment,
+                  alpha: CGFloat) -> PianoKeyboardAlignment {
+        let blended = homography.blended(with: prior.homography, alpha: alpha)
+        return PianoKeyboardAlignment(configuration: configuration,
+                                      homography: blended,
+                                      frameSize: frameSize,
+                                      confidence: confidence,
+                                      medianErrorPixels: medianErrorPixels,
+                                      matchedKeyCount: matchedKeyCount)
     }
 }

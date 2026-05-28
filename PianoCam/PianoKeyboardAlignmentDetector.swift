@@ -7,6 +7,7 @@
 
 import AVFoundation
 import CoreGraphics
+import CoreImage
 import CoreVideo
 import Foundation
 import Vision
@@ -18,7 +19,16 @@ final class PianoKeyboardAlignmentTracker {
 
     private var inFlight = false
     private var lastAttempt = Date.distantPast
+    /// Per-frame raw fits from the detector — we hold these and the
+    /// EMA-smoothed alignment separately so we can roll back to the
+    /// last detector confidence when the homography is reused.
     private var alignmentUnsafe: PianoKeyboardAlignment?
+
+    /// Smoothing factor for the EMA. 1.0 = no smoothing (each detection
+    /// fully replaces); 0.0 = ignore new detections entirely. 0.35 lets
+    /// the alignment settle in 2-3 detection cycles while still being
+    /// responsive to deliberate camera moves.
+    private let smoothingAlpha: CGFloat = 0.35
 
     var alignment: PianoKeyboardAlignment? {
         lock.lock(); defer { lock.unlock() }
@@ -47,7 +57,18 @@ final class PianoKeyboardAlignmentTracker {
                                                    configuration: configuration)
             if let result, result.confidence >= 0.25 {
                 self.lock.lock()
-                self.alignmentUnsafe = result
+                // EMA-smooth the homography against the previous accepted
+                // alignment so a single jittery detection doesn't visibly
+                // shift the overlay. Reset to the raw result when the
+                // configuration changes or when we have no prior fit.
+                if let prior = self.alignmentUnsafe,
+                   prior.configuration == result.configuration {
+                    let smoothed = result.smoothed(towards: prior,
+                                                   alpha: self.smoothingAlpha)
+                    self.alignmentUnsafe = smoothed
+                } else {
+                    self.alignmentUnsafe = result
+                }
                 self.lock.unlock()
             }
             self.inFlight = false
