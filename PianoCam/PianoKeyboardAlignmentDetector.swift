@@ -672,9 +672,15 @@ final class PianoKeyboardAlignmentDetector {
     ///
     /// Vision normalized coords are bottom-origin; we scale them into our
     /// pixel space the same way `bounds` is built, which leaves the y-axis
-    /// flipped relative to display. The corner ordering accounts for that
-    /// flip so the result is [TL, TR, BR, BL] in display terms, matching
-    /// the model polygon order (`PianoKeyGeometry.modelPolygon`).
+    /// flipped relative to display.
+    ///
+    /// Returned ordering: [BL, BR, TR, TL] in display terms, matching
+    /// PianoKeyGeometry.modelPolygon — which is [(x, 0), (x+1, 0),
+    /// (x+1, 1), (x, 1)] with model y=0 meaning the *front* of the
+    /// keyboard (player side, bottom of an overhead display) and y=1
+    /// the back. Earlier we returned CW [TL, TR, BR, BL]; that opposed
+    /// the model's CCW orientation, so the homography fitter learned a
+    /// reflection that visibly mirrored the overlay top↔bottom.
     private static func cornersFromContour(_ contour: VNContour,
                                            frameSize: CGSize) -> [CGPoint] {
         let pts = contour.normalizedPoints
@@ -698,9 +704,17 @@ final class PianoKeyboardAlignmentDetector {
         }
         let w = frameSize.width
         let h = frameSize.height
+        // Note: pts[idx].y is bottom-origin (Vision). To convert to a
+        // standard top-origin display coordinate we'd compute (1 - y) * h.
+        // But the candidates we feed into the homography fit are also in
+        // bottom-origin (the same `bounds` y = normalized.minY * h), and
+        // the model polygon uses model-y=0 for *front* (which is bottom
+        // of display = bottom-origin small y). The two conventions
+        // line up as long as we don't flip — keep raw y * h and let the
+        // affine fit absorb the sign.
         func scale(_ idx: Int) -> CGPoint {
             CGPoint(x: CGFloat(pts[idx].x) * w, y: CGFloat(pts[idx].y) * h)
         }
-        return [scale(tlIdx), scale(trIdx), scale(brIdx), scale(blIdx)]
+        return [scale(blIdx), scale(brIdx), scale(trIdx), scale(tlIdx)]
     }
 }
