@@ -42,6 +42,10 @@ final class HostState: ObservableObject {
     @Published var overheadAlignmentConfidence: Double = 0
     @Published var overheadAlignmentStatus: String = "Off"
     @Published var overheadAlignmentLocked: Bool = false
+    /// 0 = idle, 1-4 = waiting for click N (corner N of the keyboard
+    /// in TL, TR, BR, BL order). On click 4 the affine is computed,
+    /// stored, and the lock is set automatically.
+    @Published var calibrationStep: Int = 0
     /// When non-nil, the overhead source is the dev-only image simulator;
     /// the camera picker should be hidden and this label shown instead.
     @Published var simulatedOverheadLabel: String? = nil
@@ -91,4 +95,10 @@ struct HostActions {
     var audioModeChanged: (AudioPitchMode) -> Void
     var processVideo: () -> Void
     var revealOutput: () -> Void
+    /// User clicked at this view-coord (top-left origin) point in the
+    /// composite preview. Forwarded for manual-calibration capture.
+    var previewClick: (CGPoint, CGSize) -> Void
+    /// Toggle the manual-calibration capture state machine.
+    var startCalibration: () -> Void
+    var cancelCalibration: () -> Void
 }

@@ -32,7 +32,12 @@ struct ControlPanel: View {
                 basicPitchSettings
             }
             Divider()
-            PreviewLayerView(layer: previewLayer)
+            PreviewLayerView(layer: previewLayer,
+                             onMouseDown: state.calibrationStep > 0
+                                ? { [actions] point, viewSize in
+                                    actions.previewClick(point, viewSize)
+                                  }
+                                : nil)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color.black)
         }
@@ -310,6 +315,22 @@ struct ControlPanel: View {
                 .disabled(!state.overheadKeyboardEnabled)
                 .help("Freeze the current alignment. Detection stops running and the overlay stops drifting between fits.")
 
+            if state.calibrationStep == 0 {
+                Button("Calibrate") { actions.startCalibration() }
+                    .controlSize(.small)
+                    .disabled(!state.overheadKeyboardEnabled)
+                    .help("Click the keyboard's four corners (top-left, top-right, bottom-right, bottom-left) to manually set the alignment.")
+            } else {
+                let labels = ["", "Click top-left", "Click top-right", "Click bottom-right", "Click bottom-left"]
+                HStack(spacing: 6) {
+                    Text(labels[state.calibrationStep])
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.orange)
+                    Button("Cancel") { actions.cancelCalibration() }
+                        .controlSize(.small)
+                }
+            }
+
             Text(state.overheadAlignmentStatus)
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(state.overheadAlignmentConfidence >= 0.55 ? .green : .secondary)
@@ -411,19 +432,38 @@ private struct AudioMeter: View {
 
 private struct PreviewLayerView: NSViewRepresentable {
     let layer: AVSampleBufferDisplayLayer
+    /// Called with (clickPointTopLeftOrigin, viewBounds.size) when the
+    /// user clicks. Used by the manual-calibration flow to capture the
+    /// four keyboard-corner positions.
+    var onMouseDown: ((CGPoint, CGSize) -> Void)? = nil
 
     func makeNSView(context: Context) -> NSView {
-        let v = NSView()
+        let v = ClickCaptureView()
         v.wantsLayer = true
         let host = CALayer()
         host.backgroundColor = NSColor.black.cgColor
         v.layer = host
         layer.videoGravity = .resizeAspect
         host.addSublayer(layer)
+        v.onMouseDown = onMouseDown
         return v
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
         layer.frame = nsView.bounds
+        (nsView as? ClickCaptureView)?.onMouseDown = onMouseDown
+    }
+}
+
+/// Simple NSView that forwards mouseDown events with the point in view
+/// coordinates (top-left origin) plus the current view size so the
+/// caller can map into the composite's coordinate space.
+private final class ClickCaptureView: NSView {
+    var onMouseDown: ((CGPoint, CGSize) -> Void)?
+
+    override func mouseDown(with event: NSEvent) {
+        let p = convert(event.locationInWindow, from: nil)
+        let topLeft = CGPoint(x: p.x, y: bounds.height - p.y)
+        onMouseDown?(topLeft, bounds.size)
     }
 }

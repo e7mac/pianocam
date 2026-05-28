@@ -44,6 +44,17 @@ final class PianoKeyboardAlignmentTracker {
         return lockedUnsafe
     }
 
+    /// Install a fully-formed alignment manually (e.g. from the
+    /// 4-corner calibration UI) and lock it immediately. Persists to
+    /// UserDefaults so the next session restores it.
+    func installManual(_ alignment: PianoKeyboardAlignment) {
+        lock.lock()
+        alignmentUnsafe = alignment
+        lockedUnsafe = true
+        lock.unlock()
+        Self.persist(alignment)
+    }
+
     func setLocked(_ value: Bool) {
         lock.lock()
         lockedUnsafe = value

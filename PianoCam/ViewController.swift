@@ -328,6 +328,15 @@ class ViewController: NSViewController {
     private var audioObservers: [AnyCancellable] = []
     private var bpSettingsObservers: [AnyCancellable] = []
     private var alignmentLockObserver: AnyCancellable?
+    /// Accumulator for manual calibration. Indexes are in click order
+    /// (TL, TR, BR, BL of the keyboard as displayed). Each entry is a
+    /// point in the overhead-camera's pixel-buffer coordinate space.
+    private var calibrationClicks: [CGPoint] = []
+    /// Latest snapshot of the overhead band's draw geometry so the
+    /// click handler can invert the (view → composite → image) pipeline.
+    private var lastOverheadGeometry: (drawRect: CGRect,
+                                       sourceFrameSize: CGSize,
+                                       flipVertical: Bool)?
 
     private func toggleOverheadPiano(_ on: Bool) {
         hostState.overheadKeyboardEnabled = on
@@ -509,6 +518,17 @@ class ViewController: NSViewController {
             revealOutput: { [weak self] in
                 guard let url = self?.hostState.videoProcessingOutput else { return }
                 NSWorkspace.shared.activateFileViewerSelecting([url])
+            },
+            previewClick: { [weak self] point, viewSize in
+                self?.handleCalibrationClick(point: point, viewSize: viewSize)
+            },
+            startCalibration: { [weak self] in
+                self?.calibrationClicks.removeAll()
+                self?.hostState.calibrationStep = 1
+            },
+            cancelCalibration: { [weak self] in
+                self?.calibrationClicks.removeAll()
+                self?.hostState.calibrationStep = 0
             }
         )
         let panel = ControlPanel(state: hostState, actions: actions, previewLayer: previewLayer)
@@ -804,6 +824,14 @@ class ViewController: NSViewController {
             height: imageH * scale
         )
 
+        // Snapshot the geometry the calibration handler needs to map
+        // view-coords back to camera-image-coords. drawRect is in
+        // composite-pixel space (1280x720); sourceFrameSize is the camera
+        // buffer dimension.
+        lastOverheadGeometry = (drawRect: drawRect,
+                                sourceFrameSize: CGSize(width: imageW, height: imageH),
+                                flipVertical: hostState.overheadFlipVertical)
+
         if let cg = ViewController.ciContext.createCGImage(image, from: image.extent) {
             ctx.saveGState()
             ctx.clip(to: region)
@@ -858,6 +886,116 @@ class ViewController: NSViewController {
                                   activeNotes: activeNotes,
                                   handMask: handMaskDetector.mask)
         }
+    }
+
+    /// Map a preview-view click (top-left origin) to a point in the
+    /// overhead camera's pixel-buffer coords, then accumulate it. On
+    /// the fourth click, fit an affine to (0,0), (52,0), (52,1), (0,1)
+    /// model corners and seed the alignment tracker with it.
+    private func handleCalibrationClick(point: CGPoint, viewSize: CGSize) {
+        guard hostState.calibrationStep > 0,
+              hostState.calibrationStep <= 4,
+              let geom = lastOverheadGeometry,
+              viewSize.width > 0, viewSize.height > 0 else { return }
+
+        // View has resizeAspect-letterboxed composite (1280x720) inside.
+        // First, map view-coords to composite-coords accounting for the
+        // letterboxing.
+        let compW: CGFloat = 1280
+        let compH: CGFloat = 720
+        let viewAspect = viewSize.width / viewSize.height
+        let compAspect = compW / compH
+        let scaleVtoC: CGFloat
+        let compRectInView: CGRect
+        if viewAspect > compAspect {
+            // View is wider than composite — letterbox on left/right.
+            scaleVtoC = compH / viewSize.height
+            let displayedW = viewSize.height * compAspect
+            let xOff = (viewSize.width - displayedW) / 2
+            compRectInView = CGRect(x: xOff, y: 0,
+                                    width: displayedW, height: viewSize.height)
+        } else {
+            // View is taller than composite — letterbox top/bottom.
+            scaleVtoC = compW / viewSize.width
+            let displayedH = viewSize.width / compAspect
+            let yOff = (viewSize.height - displayedH) / 2
+            compRectInView = CGRect(x: 0, y: yOff,
+                                    width: viewSize.width, height: displayedH)
+        }
+        let composite = CGPoint(
+            x: (point.x - compRectInView.minX) * scaleVtoC,
+            y: (point.y - compRectInView.minY) * scaleVtoC
+        )
+
+        // Now composite (1280x720, top-left origin) → image coords. The
+        // overhead band uses aspect-fit; drawRect is in composite-pixel
+        // space.
+        let dr = geom.drawRect
+        let inDraw = CGPoint(x: composite.x - dr.minX, y: composite.y - dr.minY)
+        let sx = dr.width / max(1, geom.sourceFrameSize.width)
+        let sy = dr.height / max(1, geom.sourceFrameSize.height)
+        var image = CGPoint(x: inDraw.x / sx, y: inDraw.y / sy)
+        if geom.flipVertical {
+            image.y = geom.sourceFrameSize.height - image.y
+        }
+        // The contour/rectangle detector's image coords are
+        // Vision-bottom-origin (large y = top of display), so flip the
+        // y here to match the rest of the alignment pipeline.
+        image.y = geom.sourceFrameSize.height - image.y
+
+        calibrationClicks.append(image)
+        if hostState.calibrationStep < 4 {
+            hostState.calibrationStep += 1
+            return
+        }
+
+        // 4 clicks captured — build the alignment.
+        finishCalibration(frameSize: geom.sourceFrameSize)
+    }
+
+    private func finishCalibration(frameSize: CGSize) {
+        guard calibrationClicks.count == 4 else {
+            hostState.calibrationStep = 0
+            return
+        }
+        let config = PianoKeyboardConfiguration(
+            keyCount: hostState.overheadKeyCount,
+            lowestMIDINote: hostState.overheadLowestMIDINote
+        )
+        // Model corners of the white-key keyboard rectangle. y=0 is the
+        // back of the keyboard (display top); y=1 is the front (display
+        // bottom). Match the click order: TL, TR, BR, BL.
+        let geometry = PianoKeyboardGeometry(configuration: config)
+        let wCount = CGFloat(geometry.whiteKeyCount)
+        let modelCorners: [CGPoint] = [
+            CGPoint(x: 0,      y: 0),  // TL
+            CGPoint(x: wCount, y: 0),  // TR
+            CGPoint(x: wCount, y: 1),  // BR
+            CGPoint(x: 0,      y: 1),  // BL
+        ]
+        guard let homography = PianoHomography.fitAffine(
+            modelPoints: modelCorners,
+            imagePoints: calibrationClicks
+        ) else {
+            calibrationClicks.removeAll()
+            hostState.calibrationStep = 0
+            return
+        }
+
+        let alignment = PianoKeyboardAlignment(
+            configuration: config,
+            homography: homography,
+            frameSize: frameSize,
+            confidence: 1.0,
+            medianErrorPixels: 0,
+            matchedKeyCount: 0
+        )
+        alignmentTracker.installManual(alignment)
+        calibrationClicks.removeAll()
+        hostState.calibrationStep = 0
+        hostState.overheadAlignmentLocked = true
+        hostState.overheadAlignmentConfidence = 1.0
+        hostState.overheadAlignmentStatus = "manual calibration locked"
     }
 
     private func drawAlignedHighlights(alignment: PianoKeyboardAlignment,
