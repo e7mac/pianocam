@@ -65,15 +65,47 @@ Turn on **Overhead piano** in the control panel, choose the iPhone/Continuity
 Camera aimed down at the keyboard, then set the physical key count and lowest
 MIDI note. The bottom band switches from the synthetic keyboard to the overhead
 camera feed. PianoCam asks the overhead camera for `0.5x`/widest zoom when the
-device exposes camera zoom controls. It detects black-key contours on a
-background queue, fits a parametric keyboard model, and uses
-`screenPolygonForMIDINote(noteNumber:)` to draw live MIDI highlights over the
-real keys.
+device exposes camera zoom controls.
 
-This is a classical-CV v1. It is intentionally over-determined when many black
-keys are visible, but it still needs real-world tuning for glossy pianos,
-hands-over-keys calibration, lens undistortion, manual 4-corner fallback, and a
-labeled evaluation set.
+The detector runs three Vision passes in parallel — contour detection for
+dark-on-light and light-on-dark configurations, plus `VNDetectRectanglesRequest`
+— and picks the highest-confidence result. The fit goes through a candidate
+filter pipeline (off-edge, height consistency, dominant-y band, collinearity),
+a RANSAC affine solver with Hartley normalization, and sanity checks that
+reject degenerate projections (collapsed, reflected, out-of-image). Detections
+are EMA-smoothed across cycles so the overlay doesn't jitter, and
+`VNDetectHumanHandPoseRequest` produces a hand mask that the overlay clips
+against — so the keys you light up appear *under* the player's hands.
+
+**Lock** the alignment once it looks right (the toggle next to Flip top/bottom)
+and it's persisted to UserDefaults under the keyboard-config key — the next
+session will restore it instead of running detection again.
+
+#### Iterating on the alignment detector
+
+Without a physical overhead-camera rig, use the static-image simulator:
+
+```bash
+tools/run-with-sim-overhead.sh ~/Pictures/pianocam-sim/overhead_piano.jpg
+tools/run-with-sim-overhead.sh ~/Pictures/pianocam-sim/test-set/        # dir cycles every 3s
+```
+
+To regenerate the regression test set + a visual montage:
+
+```bash
+.venv-transkun/bin/python tools/render-synthetic-piano.py
+tools/build-overhead-test-set.sh
+tools/snapshot-testset.sh
+open /tmp/pianocam-sim/visuals/testset.jpg
+```
+
+Useful env vars (gated, no shipping cost):
+
+- `PIANOCAM_DEBUG_OVERLAY=1` — outline every model key (red whites, yellow blacks).
+- `PIANOCAM_SNAPSHOT_DIR=~/Documents` — dump composite frames every ~1s.
+- `PIANOCAM_ALIGNMENT_TRACE=1` — per-detection confidence/keys/error log.
+- `PIANOCAM_ALIGNMENT_TRACE_DETAIL=1` — homography params + per-key projections.
+- `PIANOCAM_DEBUG_CANDIDATES=1` — dump candidate sets after each filter pass.
 
 ## Repo layout
 
