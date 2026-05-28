@@ -20,6 +20,7 @@
 		6BB6B2CDCDABBABDE5518FEC /* BasicPitch.mlpackage in Resources */ = {isa = PBXBuildFile; fileRef = 01260C45F190FD778854DE2B /* BasicPitch.mlpackage */; };
 		89F73DA6AA0E84FF5E49D704 /* MIDIInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = A600A846F6B8348B5121964A /* MIDIInput.swift */; };
 		8D8F3EE1E49220A6F53E9E70 /* VocalIsolator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50C67EED9B4E0F5DC0B13C4A /* VocalIsolator.swift */; };
+		909EE26D3802E66AF8D25E6F /* OverheadFrameSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34C1719E9AB0B1B2F95901E0 /* OverheadFrameSource.swift */; };
 		9CA655AE16A834084FFD9A3F /* VideoProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43D9FC8B733C2EDA611F0D57 /* VideoProcessor.swift */; };
 		ADCB846C6C9A98B174428CC0 /* BasicPitch.mlpackage in Resources */ = {isa = PBXBuildFile; fileRef = 01260C45F190FD778854DE2B /* BasicPitch.mlpackage */; };
 		B6A18908F74E5CDE0225FB32 /* VocalIsolator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50C67EED9B4E0F5DC0B13C4A /* VocalIsolator.swift */; };
@@ -71,6 +72,7 @@
 		1CBBACBF07E6CA03C9B05FC3 /* BasicPitchInference.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BasicPitchInference.swift; sourceTree = "<group>"; };
 		296FF0EED37A6CFB44FDBBF9 /* VoiceActivityDetector.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceActivityDetector.swift; sourceTree = "<group>"; };
 		2F29E2CB1960E933CF6F7E9E /* VocalIsolator.mlpackage */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.mlpackage; path = VocalIsolator.mlpackage; sourceTree = "<group>"; };
+		34C1719E9AB0B1B2F95901E0 /* OverheadFrameSource.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OverheadFrameSource.swift; sourceTree = "<group>"; };
 		43D9FC8B733C2EDA611F0D57 /* VideoProcessor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VideoProcessor.swift; sourceTree = "<group>"; };
 		50C67EED9B4E0F5DC0B13C4A /* VocalIsolator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VocalIsolator.swift; sourceTree = "<group>"; };
 		6B1A0D7E5A1C4F3C91B9D000 /* PianoKeyboardGeometry.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PianoKeyboardGeometry.swift; sourceTree = "<group>"; };
@@ -171,6 +173,7 @@
 				1CBBACBF07E6CA03C9B05FC3 /* BasicPitchInference.swift */,
 				43D9FC8B733C2EDA611F0D57 /* VideoProcessor.swift */,
 				296FF0EED37A6CFB44FDBBF9 /* VoiceActivityDetector.swift */,
+				34C1719E9AB0B1B2F95901E0 /* OverheadFrameSource.swift */,
 			);
 			path = PianoCam;
 			sourceTree = "<group>";
@@ -308,6 +311,7 @@
 				D265D9D0214945C418D72677 /* VoiceActivityDetector.swift in Sources */,
 				33C36A8F31464758BA7AC378 /* BasicPitchModel.swift in Sources */,
 				8D8F3EE1E49220A6F53E9E70 /* VocalIsolator.swift in Sources */,
+				909EE26D3802E66AF8D25E6F /* OverheadFrameSource.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -473,12 +477,12 @@
 				DEVELOPMENT_TEAM = 232HCB982K;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Sample Camera";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSMainStoryboardFile = Main;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "PianoCam listens to your acoustic piano so it can light up the keys you play.";
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -505,12 +509,12 @@
 				DEVELOPMENT_TEAM = 232HCB982K;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Sample Camera";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSMainStoryboardFile = Main;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "PianoCam listens to your acoustic piano so it can light up the keys you play.";
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",

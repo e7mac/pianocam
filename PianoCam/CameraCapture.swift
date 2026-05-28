@@ -9,7 +9,7 @@
 import AVFoundation
 import Foundation
 
-final class CameraCapture: NSObject {
+final class CameraCapture: NSObject, OverheadFrameSource {
     private let session = AVCaptureSession()
     private let queue = DispatchQueue(label: "pianocam.cameracapture", qos: .userInteractive)
     private var input: AVCaptureDeviceInput?
