@@ -10,6 +10,7 @@ import Cocoa
 import Combine
 import CoreImage
 import CoreMediaIO
+import ImageIO
 import SwiftUI
 import SystemExtensions
 
@@ -42,6 +43,7 @@ class ViewController: NSViewController {
     private var _whiteStripeIsAscending: Bool = false
     private var overlayMessage: Bool = false
     private var sequenceNumber = 0
+    private var snapshotCounter: Int = 0
     private var timer: Timer?
     private var propTimer: Timer?
 
@@ -596,6 +598,25 @@ class ViewController: NSViewController {
         let composite = makeCompositeFrame()
         if let composite { showPreview(composite) }
 
+        // Optional debug snapshot — write the current composite to disk so
+        // simulator runs without a connected consumer can be visually
+        // inspected. Activated by env var; throttled to ~1Hz.
+        if let composite,
+           let dir = ProcessInfo.processInfo.environment["PIANOCAM_SNAPSHOT_DIR"] {
+            snapshotCounter += 1
+            if snapshotCounter >= 30 {
+                snapshotCounter = 0
+                let url = URL(fileURLWithPath: (dir as NSString).expandingTildeInPath)
+                    .appendingPathComponent("pianocam-snapshot.png")
+                if let dest = CGImageDestinationCreateWithURL(
+                    url as CFURL, "public.png" as CFString, 1, nil
+                ) {
+                    CGImageDestinationAddImage(dest, composite, nil)
+                    CGImageDestinationFinalize(dest)
+                }
+            }
+        }
+
         guard needToStream,
               (enqueued == false || readyToEnqueue == true),
               let queue = self.sinkQueue else { return }
@@ -833,6 +854,59 @@ class ViewController: NSViewController {
 
         ctx.saveGState()
         ctx.clip(to: clipRegion)
+
+        // Debug: outline every key so the alignment fit is visible
+        // without needing MIDI input. Enabled by env var. Black keys
+        // get a contrasting yellow so they stand out from the red
+        // white-key outlines.
+        if ProcessInfo.processInfo.environment["PIANOCAM_DEBUG_OVERLAY"] != nil {
+            let lowest = alignment.configuration.lowestMIDINote
+            let highest = alignment.configuration.highestMIDINote
+            ctx.saveGState()
+            ctx.setLineWidth(3)
+            var drew = 0, skipped = 0
+            for n in lowest...highest {
+                guard let path = alignment.screenPolygonForMIDINote(noteNumber: n)?.copy(using: &transform) else {
+                    skipped += 1
+                    continue
+                }
+                let bbox = path.boundingBoxOfPath
+                if !bbox.origin.x.isFinite || !bbox.origin.y.isFinite ||
+                   !bbox.size.width.isFinite || !bbox.size.height.isFinite {
+                    skipped += 1
+                    continue
+                }
+                let isBlack = [1, 3, 6, 8, 10].contains(n % 12)
+                ctx.setStrokeColor(isBlack
+                    ? CGColor(red: 1, green: 0.9, blue: 0.1, alpha: 0.95)
+                    : CGColor(red: 1, green: 0.3, blue: 0.3, alpha: 0.85))
+                ctx.addPath(path)
+                ctx.strokePath()
+                drew += 1
+            }
+            // One-shot dump of where things actually landed (only when
+            // a per-frame env var also asks for it, so trace logs don't
+            // explode).
+            if ProcessInfo.processInfo.environment["PIANOCAM_DEBUG_POSITIONS"] != nil {
+                let first = alignment.screenPolygonForMIDINote(noteNumber: lowest)?
+                    .copy(using: &transform)?.boundingBoxOfPath
+                let mid = alignment.screenPolygonForMIDINote(noteNumber: (lowest + highest) / 2)?
+                    .copy(using: &transform)?.boundingBoxOfPath
+                let last = alignment.screenPolygonForMIDINote(noteNumber: highest)?
+                    .copy(using: &transform)?.boundingBoxOfPath
+                func rs(_ r: CGRect) -> String {
+                    String(format: "(%.0f,%.0f %.0fx%.0f)", r.minX, r.minY, r.width, r.height)
+                }
+                NSLog("PianoCam: overlay drew=%d skipped=%d clip=%@ draw=%@ first=%@ mid=%@ last=%@",
+                      drew, skipped,
+                      rs(clipRegion), rs(drawRect),
+                      first.map(rs) ?? "nil",
+                      mid.map(rs) ?? "nil",
+                      last.map(rs) ?? "nil")
+            }
+            ctx.restoreGState()
+        }
+
         for (note, velocity) in activeNotes {
             guard let path = alignment.screenPolygonForMIDINote(noteNumber: Int(note))?.copy(using: &transform) else {
                 continue

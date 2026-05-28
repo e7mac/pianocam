@@ -398,7 +398,7 @@ final class PianoKeyboardAlignmentDetector {
                         observed.append(contentsOf: window[i].corners)
                         model.append(contentsOf: modelKeys[mi].modelPolygon)
                     }
-                    guard let h0 = PianoHomography.fit(modelPoints: model, imagePoints: observed) else {
+                    guard let h0 = PianoHomography.fitAffine(modelPoints: model, imagePoints: observed) else {
                         fitFailed += 1
                         continue
                     }
@@ -445,7 +445,7 @@ final class PianoKeyboardAlignmentDetector {
                         refObs.append(contentsOf: cand.corners)
                         refMdl.append(contentsOf: modelKey.modelPolygon)
                     }
-                    guard let hMid = PianoHomography.fit(modelPoints: refMdl, imagePoints: refObs) else {
+                    guard let hMid = PianoHomography.fitAffine(modelPoints: refMdl, imagePoints: refObs) else {
                         continue
                     }
 
@@ -461,7 +461,7 @@ final class PianoKeyboardAlignmentDetector {
                         refObs.append(contentsOf: cand.corners)
                         refMdl.append(contentsOf: modelKey.modelPolygon)
                     }
-                    guard let hFinal = PianoHomography.fit(modelPoints: refMdl, imagePoints: refObs) else {
+                    guard let hFinal = PianoHomography.fitAffine(modelPoints: refMdl, imagePoints: refObs) else {
                         continue
                     }
 
@@ -491,6 +491,100 @@ final class PianoKeyboardAlignmentDetector {
                             confirmed.append((modelKey, cand, d))
                         }
                     }
+
+                    // Sanity-check the homography by walking the projected
+                    // model-key centers in order. For a real keyboard
+                    // these form a roughly straight left-to-right line;
+                    // a fit that satisfies a few tight inliers but is
+                    // globally wrong tends to fold the line back on
+                    // itself or project some keys to infinity. Reject if
+                    // consecutive steps disagree on direction (the dot
+                    // product with the mean step goes negative) or any
+                    // projection is non-finite.
+                    var centers: [CGPoint] = []
+                    centers.reserveCapacity(modelKeys.count)
+                    var sane = true
+                    for mk in modelKeys {
+                        let p = hFinal.project(mk.modelCenter)
+                        if !p.x.isFinite || !p.y.isFinite { sane = false; break }
+                        // Also project the polygon corners — the path
+                        // overlay uses those, and a center can be finite
+                        // while a corner falls into the abs(w) < epsilon
+                        // singularity (different model y, different
+                        // projective denominator). If any corner blows up,
+                        // the rendered overlay will silently fail to draw.
+                        for corner in mk.modelPolygon {
+                            let cp = hFinal.project(corner)
+                            if !cp.x.isFinite || !cp.y.isFinite {
+                                sane = false
+                                break
+                            }
+                        }
+                        if !sane { break }
+                        centers.append(p)
+                    }
+                    if !sane { continue }
+                    var steps: [CGPoint] = []
+                    steps.reserveCapacity(centers.count - 1)
+                    for i in 1..<centers.count {
+                        steps.append(CGPoint(x: centers[i].x - centers[i - 1].x,
+                                             y: centers[i].y - centers[i - 1].y))
+                    }
+                    let stepCount = CGFloat(steps.count)
+                    let meanDx = steps.reduce(0) { $0 + $1.x } / stepCount
+                    let meanDy = steps.reduce(0) { $0 + $1.y } / stepCount
+                    var monotonic = true
+                    for s in steps {
+                        if s.x * meanDx + s.y * meanDy <= 0 { monotonic = false; break }
+                    }
+                    if !monotonic { continue }
+
+                    // The projected keyboard must span a meaningful
+                    // fraction of the candidate-x range. We've seen
+                    // fits that collapse all 88 keys into a 1-pixel-wide
+                    // x column (monotonic in y only, satisfying a few
+                    // inliers stacked vertically). Require the projected
+                    // x-span to be at least a fraction of the input
+                    // candidate-x-span so global collapse is rejected.
+                    let cxs = orderedCandidates.map { $0.center.x }
+                    let candXSpan = (cxs.max() ?? 0) - (cxs.min() ?? 0)
+                    let pxs = centers.map(\.x)
+                    let projXSpan = (pxs.max() ?? 0) - (pxs.min() ?? 0)
+                    if ProcessInfo.processInfo.environment["PIANOCAM_ALIGNMENT_TRACE_DETAIL"] != nil
+                        && confirmed.count >= 10 {
+                        NSLog("PianoCam: alignment-trace xspan kind=%@ mFirst=%d mLast=%d projXSpan=%.0f candXSpan=%.0f inliers=%d",
+                              kind == .black ? "black" : "white",
+                              mFirst, mLast, Double(projXSpan), Double(candXSpan), confirmed.count)
+                    }
+                    if projXSpan < max(candXSpan * 0.5, 50) { continue }
+
+                    // The projected key height should be in the same
+                    // ballpark as the real candidates' bounding-box
+                    // height. We've seen hypotheses with 10 tightly-fit
+                    // inliers blow the y-scale up to ~6× the true key
+                    // height — keys then render as thin lines extending
+                    // far above and below the band. Compare the
+                    // projected polygon's front-to-back distance for one
+                    // model key against the median candidate height
+                    // (which tracks actual key size).
+                    let firstKey = modelKeys.first!
+                    let topProj = hFinal.project(firstKey.modelPolygon[0])
+                    let botProj = hFinal.project(firstKey.modelPolygon[3])
+                    let projKeyHeight = hypot(topProj.x - botProj.x,
+                                              topProj.y - botProj.y)
+                    let candHeights = orderedCandidates.map { $0.bounds.height }.sorted()
+                    let medianCandHeight = candHeights[candHeights.count / 2]
+                    // Candidates are usually as tall as a key (black key
+                    // or white key, whichever was detected). Allow a 2×
+                    // margin in each direction to absorb perspective.
+                    let scaleRatio = projKeyHeight / max(medianCandHeight, 1)
+                    // The bbox height of a contour can be much smaller
+                    // than the true key height (when the contour only
+                    // captures a portion — e.g. a white-key contour
+                    // gives the part not covered by black keys). Give
+                    // the upper end of the range generous slack; the
+                    // catastrophic degenerate cases push ratio above 7×.
+                    if scaleRatio < 0.3 || scaleRatio > 6.0 { continue }
 
                     var errors: [CGFloat] = confirmed.map { $0.2 }
                     errors.sort()
@@ -522,6 +616,24 @@ final class PianoKeyboardAlignmentDetector {
                     }
                     if best.map({ score(of: fit) > score(of: $0) }) ?? true {
                         best = fit
+                        if ProcessInfo.processInfo.environment["PIANOCAM_ALIGNMENT_TRACE_DETAIL"] != nil {
+                            // Project a model key's two y-extremes to
+                            // measure the homography's effective y-scale
+                            // on this hypothesis. A tiny value here means
+                            // keys will be rendered as thin lines.
+                            let firstKey = modelKeys.first!
+                            let topPt = firstKey.modelPolygon[0]
+                            let botPt = firstKey.modelPolygon[3]
+                            let topProj = hFinal.project(topPt)
+                            let botProj = hFinal.project(botPt)
+                            let keyHeightPx = hypot(topProj.x - botProj.x,
+                                                    topProj.y - botProj.y)
+                            NSLog("PianoCam: alignment-trace winning kind=%@ mFirst=%d mLast=%d inliers=%d median=%.1f keyHeightPx=%.1f h20=%.6f h21=%.6f",
+                                  kind == .black ? "black" : "white",
+                                  mFirst, mLast, confirmed.count, Double(median),
+                                  Double(keyHeightPx),
+                                  Double(hFinal.h20), Double(hFinal.h21))
+                        }
                     }
                 }
             }

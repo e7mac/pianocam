@@ -45,11 +45,19 @@ if [[ -f "$CHOPIN" ]]; then
     # Use a simple sequential numbering so the directory cycles in order:
     :
   done
-  # Sequential numbering (separate loop for clarity)
+  # Sequential numbering (separate loop for clarity).
+  # The Synthesia-style video has a "key strike" glow strip a few pixels
+  # above the keys that visually connects every black key into a single
+  # dark blob — defeating the detector, which only walks topLevelContours.
+  # So we crop tight to just the keyboard body (y=395..695 of the
+  # 1920x1080 source) and pad with white so each black key is its own
+  # top-level dark contour.
   i=1
   for ts in 0 15 30 45 60 75 100 120 150 160; do
     out="$(printf '%s/%02d-chopin-t%d.jpg' "$DIR" "$i" "$ts")"
-    ffmpeg -y -ss "$ts" -i "$CHOPIN" -frames:v 1 -vf "crop=1920:720:0:0" -q:v 2 "$out" 2>/dev/null
+    ffmpeg -y -ss "$ts" -i "$CHOPIN" -frames:v 1 \
+      -vf "crop=1880:300:20:395,pad=iw+40:ih+40:20:20:white" \
+      -q:v 2 "$out" 2>/dev/null
     i=$((i + 1))
   done
 else

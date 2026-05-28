@@ -122,6 +122,45 @@ struct PianoKeyboardGeometry {
     }
 }
 
+/// 3x3 matrix used during Hartley normalization. We only need
+/// multiply and inverse; this is much simpler than pulling in simd.
+private struct Matrix3x3 {
+    let h00, h01, h02: CGFloat
+    let h10, h11, h12: CGFloat
+    let h20, h21, h22: CGFloat
+
+    func multiply(_ b: Matrix3x3) -> Matrix3x3 {
+        Matrix3x3(
+            h00: h00 * b.h00 + h01 * b.h10 + h02 * b.h20,
+            h01: h00 * b.h01 + h01 * b.h11 + h02 * b.h21,
+            h02: h00 * b.h02 + h01 * b.h12 + h02 * b.h22,
+            h10: h10 * b.h00 + h11 * b.h10 + h12 * b.h20,
+            h11: h10 * b.h01 + h11 * b.h11 + h12 * b.h21,
+            h12: h10 * b.h02 + h11 * b.h12 + h12 * b.h22,
+            h20: h20 * b.h00 + h21 * b.h10 + h22 * b.h20,
+            h21: h20 * b.h01 + h21 * b.h11 + h22 * b.h21,
+            h22: h20 * b.h02 + h21 * b.h12 + h22 * b.h22)
+    }
+
+    func inverse() -> Matrix3x3 {
+        let c00 = h11 * h22 - h12 * h21
+        let c01 = h12 * h20 - h10 * h22
+        let c02 = h10 * h21 - h11 * h20
+        let det = h00 * c00 + h01 * c01 + h02 * c02
+        let invDet = 1.0 / det
+        return Matrix3x3(
+            h00: c00 * invDet,
+            h01: (h02 * h21 - h01 * h22) * invDet,
+            h02: (h01 * h12 - h02 * h11) * invDet,
+            h10: c01 * invDet,
+            h11: (h00 * h22 - h02 * h20) * invDet,
+            h12: (h02 * h10 - h00 * h12) * invDet,
+            h20: c02 * invDet,
+            h21: (h01 * h20 - h00 * h21) * invDet,
+            h22: (h00 * h11 - h01 * h10) * invDet)
+    }
+}
+
 struct PianoHomography {
     let h00: CGFloat
     let h01: CGFloat
@@ -136,7 +175,13 @@ struct PianoHomography {
         let x = point.x
         let y = point.y
         let w = h20 * x + h21 * y + 1
-        guard abs(w) > 0.000001 else { return .zero }
+        // Near-zero denominator means a near-degenerate homography (points
+        // map to or through infinity). Return non-finite coordinates so
+        // callers can detect and reject — the previous .zero fallback hid
+        // degenerate projections inside an in-band-looking (0, 0).
+        guard abs(w) > 0.000001 else {
+            return CGPoint(x: CGFloat.infinity, y: CGFloat.infinity)
+        }
         return CGPoint(x: (h00 * x + h01 * y + h02) / w,
                        y: (h10 * x + h11 * y + h12) / w)
     }
@@ -152,13 +197,58 @@ struct PianoHomography {
         return path
     }
 
+    /// Fit a 6-parameter affine transform (no perspective). For overhead
+    /// piano photos where the keyboard is far enough from the camera that
+    /// perspective foreshortening is small, this is more stable than the
+    /// 8-parameter homography: near-collinear source points (the keyboard
+    /// is mostly a horizontal line) don't constrain the two perspective
+    /// parameters, so the full homography fit collapses into a degenerate
+    /// solution. Affine sidesteps that entirely.
+    static func fitAffine(modelPoints: [CGPoint], imagePoints: [CGPoint]) -> PianoHomography? {
+        guard modelPoints.count == imagePoints.count, modelPoints.count >= 3 else { return nil }
+        // 6 unknowns (a, b, tx, c, d, ty) split into two independent 3x3
+        // LSQR systems: one for x (u = aX + bY + tx), one for y.
+        var atax = Array(repeating: Array(repeating: CGFloat(0), count: 3), count: 3)
+        var atbx = Array(repeating: CGFloat(0), count: 3)
+        var atay = Array(repeating: Array(repeating: CGFloat(0), count: 3), count: 3)
+        var atby = Array(repeating: CGFloat(0), count: 3)
+        for (model, image) in zip(modelPoints, imagePoints) {
+            let row: [CGFloat] = [model.x, model.y, 1]
+            for i in 0..<3 {
+                atbx[i] += row[i] * image.x
+                atby[i] += row[i] * image.y
+                for j in 0..<3 {
+                    atax[i][j] += row[i] * row[j]
+                    atay[i][j] += row[i] * row[j]
+                }
+            }
+        }
+        guard let xParams = solve(atax, atbx),
+              let yParams = solve(atay, atby) else { return nil }
+        return PianoHomography(h00: xParams[0], h01: xParams[1], h02: xParams[2],
+                               h10: yParams[0], h11: yParams[1], h12: yParams[2],
+                               h20: 0, h21: 0)
+    }
+
     static func fit(modelPoints: [CGPoint], imagePoints: [CGPoint]) -> PianoHomography? {
         guard modelPoints.count == imagePoints.count, modelPoints.count >= 4 else { return nil }
+
+        // Hartley normalization: shift each point set so its centroid is at
+        // the origin and its average distance from origin is sqrt(2). This
+        // equalizes the magnitudes that the LSQR sees — without it, model
+        // coords (0..52) and image coords (0..2000+) produce matrix entries
+        // varying by 40× and the perspective parameters become wildly
+        // ill-conditioned for near-horizontal point sets (the classic
+        // "homography from coplanar points on a line" failure mode that
+        // collapses the keyboard into a single column).
+        guard let (normalizedModel, modelDenorm) = hartleyNormalize(modelPoints),
+              let (normalizedImage, imageNorm) = hartleyNormalize(imagePoints)
+        else { return nil }
 
         var ata = Array(repeating: Array(repeating: CGFloat(0), count: 8), count: 8)
         var atb = Array(repeating: CGFloat(0), count: 8)
 
-        for (model, image) in zip(modelPoints, imagePoints) {
+        for (model, image) in zip(normalizedModel, normalizedImage) {
             let x = model.x
             let y = model.y
             let u = image.x
@@ -168,9 +258,41 @@ struct PianoHomography {
         }
 
         guard let h = solve(ata, atb) else { return nil }
-        return PianoHomography(h00: h[0], h01: h[1], h02: h[2],
-                               h10: h[3], h11: h[4], h12: h[5],
-                               h20: h[6], h21: h[7])
+        let normalized = Matrix3x3(h00: h[0], h01: h[1], h02: h[2],
+                                   h10: h[3], h11: h[4], h12: h[5],
+                                   h20: h[6], h21: h[7], h22: 1)
+        // Denormalize: H = T_image^-1 * H_normalized * T_model
+        let denormalized = imageNorm.inverse().multiply(normalized).multiply(modelDenorm)
+        let scale = denormalized.h22 != 0 ? denormalized.h22 : 1
+        return PianoHomography(h00: denormalized.h00 / scale,
+                               h01: denormalized.h01 / scale,
+                               h02: denormalized.h02 / scale,
+                               h10: denormalized.h10 / scale,
+                               h11: denormalized.h11 / scale,
+                               h12: denormalized.h12 / scale,
+                               h20: denormalized.h20 / scale,
+                               h21: denormalized.h21 / scale)
+    }
+
+    /// Returns (points-after-T, T) where T is the similarity transform that
+    /// shifts the centroid to origin and rescales so the average distance
+    /// from origin is sqrt(2). Returns nil if all points coincide.
+    private static func hartleyNormalize(_ points: [CGPoint])
+        -> ([CGPoint], Matrix3x3)? {
+        let count = CGFloat(points.count)
+        let cx = points.reduce(0) { $0 + $1.x } / count
+        let cy = points.reduce(0) { $0 + $1.y } / count
+        let meanDist = points.reduce(0) {
+            $0 + hypot($1.x - cx, $1.y - cy)
+        } / count
+        guard meanDist > 0.000001 else { return nil }
+        let s = CGFloat(sqrt(2.0)) / meanDist
+        let transformed = points.map { CGPoint(x: ($0.x - cx) * s,
+                                               y: ($0.y - cy) * s) }
+        let T = Matrix3x3(h00: s,  h01: 0, h02: -s * cx,
+                          h10: 0,  h11: s, h12: -s * cy,
+                          h20: 0,  h21: 0, h22: 1)
+        return (transformed, T)
     }
 
     private static func accumulate(row: [CGFloat],
