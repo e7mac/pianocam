@@ -114,10 +114,18 @@ final class PianoKeyboardAlignmentDetector {
                          pixelBuffer: CVPixelBuffer,
                          configuration: PianoKeyboardConfiguration,
                          frameSize: CGSize) throws -> PianoKeyboardAlignment? {
-        let candidates = try detectCandidates(kind: kind,
-                                              pixelBuffer: pixelBuffer,
-                                              frameSize: frameSize)
+        let raw = try detectCandidates(kind: kind,
+                                       pixelBuffer: pixelBuffer,
+                                       frameSize: frameSize)
+        guard raw.count >= 7 else { return nil }
+
+        let candidates = filterByCollinearity(raw)
         guard candidates.count >= 7 else { return nil }
+        if ProcessInfo.processInfo.environment["PIANOCAM_ALIGNMENT_TRACE"] != nil,
+           candidates.count != raw.count {
+            NSLog("PianoCam: alignment-trace collinearity kind=%@ raw=%d kept=%d",
+                  kind == .black ? "black" : "white", raw.count, candidates.count)
+        }
 
         let ordered = orderedAlongKeyboardAxis(candidates)
         guard let fit = bestFit(kind: kind,
@@ -205,15 +213,22 @@ final class PianoKeyboardAlignmentDetector {
     }
 
     private func orderedAlongKeyboardAxis(_ candidates: [Candidate]) -> [Candidate] {
+        let (_, axis) = principalAxis(of: candidates)
+        return candidates.sorted {
+            projection($0.center, onto: axis) < projection($1.center, onto: axis)
+        }
+    }
+
+    /// Compute (centroid, principalAxis) of a candidate set.
+    /// The axis points roughly along the keyboard's left-to-right direction.
+    private func principalAxis(of candidates: [Candidate]) -> (CGPoint, CGPoint) {
         let mean = candidates.reduce(CGPoint.zero) {
             CGPoint(x: $0.x + $1.center.x, y: $0.y + $1.center.y)
         }
         let count = CGFloat(max(1, candidates.count))
         let center = CGPoint(x: mean.x / count, y: mean.y / count)
 
-        var xx: CGFloat = 0
-        var xy: CGFloat = 0
-        var yy: CGFloat = 0
+        var xx: CGFloat = 0, xy: CGFloat = 0, yy: CGFloat = 0
         for c in candidates {
             let dx = c.center.x - center.x
             let dy = c.center.y - center.y
@@ -221,15 +236,72 @@ final class PianoKeyboardAlignmentDetector {
             xy += dx * dy
             yy += dy * dy
         }
-
         let angle = 0.5 * atan2(2 * xy, xx - yy)
         var axis = CGPoint(x: cos(angle), y: sin(angle))
         if abs(axis.x) < 0.2 { axis = CGPoint(x: -axis.y, y: axis.x) }
         if axis.x < 0 { axis = CGPoint(x: -axis.x, y: -axis.y) }
+        return (center, axis)
+    }
 
-        return candidates.sorted {
-            projection($0.center, onto: axis) < projection($1.center, onto: axis)
+    /// Drop candidates that lie too far off the keyboard's centerline.
+    /// Real overhead piano photos have plenty of dark contours that pass
+    /// the area/aspect filter but aren't keys — wood grain stripes above
+    /// the keyboard, fingers or jacket edges below it. Real keys sit in a
+    /// tight horizontal band along the keyboard's principal axis; spurious
+    /// detections are scattered.
+    ///
+    /// Two-pass: first pass finds the axis using all candidates, second
+    /// pass recomputes it using only the candidates within the band. This
+    /// limits the influence of strong outliers on the band's orientation.
+    private func filterByCollinearity(_ candidates: [Candidate]) -> [Candidate] {
+        guard candidates.count >= 4 else { return candidates }
+
+        func keep(against axis: CGPoint,
+                  through center: CGPoint,
+                  bandHalfHeight: CGFloat) -> [Candidate] {
+            let perp = CGPoint(x: -axis.y, y: axis.x)
+            return candidates.filter { c in
+                let dx = c.center.x - center.x
+                let dy = c.center.y - center.y
+                let transverse = abs(dx * perp.x + dy * perp.y)
+                return transverse <= bandHalfHeight
+            }
         }
+
+        // Adaptive band thickness: use the median transverse distance from
+        // the centerline as the scale, then keep candidates within ~3× that.
+        // For a real keyboard most candidates sit on the centerline with
+        // small transverse distances; spurious detections (wood grain
+        // above, hand edges below) are much farther. Using a robust
+        // scale-from-data avoids hard-coding pixel thresholds that won't
+        // generalize across image resolutions.
+        func transverseDistances(of cands: [Candidate],
+                                 axis: CGPoint,
+                                 through center: CGPoint) -> [CGFloat] {
+            let perp = CGPoint(x: -axis.y, y: axis.x)
+            return cands.map { c in
+                let dx = c.center.x - center.x
+                let dy = c.center.y - center.y
+                return abs(dx * perp.x + dy * perp.y)
+            }
+        }
+
+        let (center0, axis0) = principalAxis(of: candidates)
+        let dists0 = transverseDistances(of: candidates, axis: axis0, through: center0).sorted()
+        let median0 = dists0[dists0.count / 2]
+        // If the median distance is essentially zero (the spread axis is
+        // very tight, e.g. a clean rendered image), use a small absolute
+        // floor so a few stray detections don't drag the whole set out.
+        let band0 = max(median0 * 3, 4)
+        let firstPass = keep(against: axis0, through: center0, bandHalfHeight: band0)
+        if firstPass.count < 7 { return candidates }
+
+        let (center1, axis1) = principalAxis(of: firstPass)
+        let dists1 = transverseDistances(of: firstPass, axis: axis1, through: center1).sorted()
+        let median1 = dists1[dists1.count / 2]
+        let band1 = max(median1 * 3, 4)
+        let secondPass = keep(against: axis1, through: center1, bandHalfHeight: band1)
+        return secondPass.count >= 7 ? secondPass : firstPass
     }
 
     private func bestFit(kind: KeyKind,
