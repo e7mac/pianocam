@@ -81,6 +81,12 @@ against — so the keys you light up appear *under* the player's hands.
 and it's persisted to UserDefaults under the keyboard-config key — the next
 session will restore it instead of running detection again.
 
+**Calibrate** lets you set the alignment manually when auto-detection misses
+(extreme close-ups, weird angles, very-glossy pianos). Click the button and
+tap the keyboard's four corners in TL → TR → BR → BL order; an orange
+numbered dot lands at each tap, the affine fit happens after the fourth,
+and the result is auto-locked and persisted.
+
 #### Iterating on the alignment detector
 
 Without a physical overhead-camera rig, use the static-image simulator:
