@@ -25,6 +25,8 @@ struct ControlPanel: View {
             }
             Divider()
             controlsRow
+            Divider()
+            overheadControls
             if state.audioMode == .basicPitch {
                 Divider()
                 basicPitchSettings
@@ -258,6 +260,55 @@ struct ControlPanel: View {
         .padding(.vertical, 10)
     }
 
+    private var overheadControls: some View {
+        HStack(spacing: 16) {
+            Toggle("Overhead piano", isOn: overheadEnabledBinding)
+                .toggleStyle(.switch)
+                .controlSize(.small)
+
+            Picker("", selection: overheadCameraBinding) {
+                if state.cameras.isEmpty {
+                    Text("No cameras found").tag(String?.none)
+                }
+                ForEach(state.cameras, id: \.uniqueID) { d in
+                    Text(d.localizedName).tag(String?.some(d.uniqueID))
+                }
+            }
+            .labelsHidden()
+            .frame(width: 260)
+            .disabled(!state.overheadKeyboardEnabled)
+
+            Picker("Keys", selection: $state.overheadKeyCount) {
+                ForEach([88, 76, 61, 49, 25], id: \.self) { count in
+                    Text("\(count)").tag(count)
+                }
+            }
+            .frame(width: 100)
+            .disabled(!state.overheadKeyboardEnabled)
+
+            Stepper("Lowest MIDI \(state.overheadLowestMIDINote)",
+                    value: $state.overheadLowestMIDINote,
+                    in: 0...127)
+                .frame(width: 160)
+                .disabled(!state.overheadKeyboardEnabled)
+
+            Toggle("Flip top/bottom", isOn: $state.overheadFlipVertical)
+                .toggleStyle(.checkbox)
+                .controlSize(.small)
+                .disabled(!state.overheadKeyboardEnabled)
+
+            Text(state.overheadAlignmentStatus)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(state.overheadAlignmentConfidence >= 0.55 ? .green : .secondary)
+                .lineLimit(1)
+                .frame(minWidth: 190, alignment: .leading)
+
+            Spacer()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+    }
+
     private func badge(_ title: String, on: Bool) -> some View {
         HStack(spacing: 4) {
             Circle()
@@ -278,6 +329,25 @@ struct ControlPanel: View {
                     actions.cameraSelected(d)
                 }
             }
+        )
+    }
+
+    private var overheadCameraBinding: Binding<String?> {
+        Binding(
+            get: { state.selectedOverheadCameraID },
+            set: { newID in
+                state.selectedOverheadCameraID = newID
+                if let id = newID, let d = state.cameras.first(where: { $0.uniqueID == id }) {
+                    actions.overheadCameraSelected(d)
+                }
+            }
+        )
+    }
+
+    private var overheadEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { state.overheadKeyboardEnabled },
+            set: { actions.overheadToggled($0) }
         )
     }
 

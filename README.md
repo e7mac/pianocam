@@ -28,6 +28,9 @@ Built on top of [@ldenoue/cameraextension](https://github.com/ldenoue/cameraexte
 - Camera picker — switch between built-in / external / Continuity Cameras.
 - Automatic MIDI source binding — connects to every CoreMIDI source, hot-plug aware.
 - In-app preview window showing exactly what consumers will see.
+- Optional overhead-piano camera band: select a second camera, detect black-key
+  contours with Vision, fit a piano geometry homography, and render MIDI
+  highlights onto the physical keys in the video.
 
 ## Build & install
 
@@ -55,6 +58,22 @@ In the app window:
 2. Click **activate** → approve the extension in System Settings → Privacy & Security → Login Items & Extensions → Camera Extensions.
 3. Open QuickTime → File → New Movie Recording → camera dropdown → **PianoCam**.
 4. Play notes on a MIDI controller (or send via VMPK / IAC Bus / etc.) — keys light up in QuickTime in real time.
+
+### Overhead piano alignment
+
+Turn on **Overhead piano** in the control panel, choose the iPhone/Continuity
+Camera aimed down at the keyboard, then set the physical key count and lowest
+MIDI note. The bottom band switches from the synthetic keyboard to the overhead
+camera feed. PianoCam asks the overhead camera for `0.5x`/widest zoom when the
+device exposes camera zoom controls. It detects black-key contours on a
+background queue, fits a parametric keyboard model, and uses
+`screenPolygonForMIDINote(noteNumber:)` to draw live MIDI highlights over the
+real keys.
+
+This is a classical-CV v1. It is intentionally over-determined when many black
+keys are visible, but it still needs real-world tuning for glossy pianos,
+hands-over-keys calibration, lens undistortion, manual 4-corner fallback, and a
+labeled evaluation set.
 
 ## Repo layout
 

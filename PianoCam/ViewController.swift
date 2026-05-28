@@ -20,8 +20,13 @@ class ViewController: NSViewController {
     private var image = NSImage(named: "cham-index")  // legacy fallback
     private var activating: Bool = false
     private let cameraCapture = CameraCapture()
+    private let overheadCameraCapture = CameraCapture()
     private var latestCameraFrame: CVPixelBuffer?
+    private var latestOverheadFrame: CVPixelBuffer?
     private let frameLock = NSLock()
+    private let overheadFrameLock = NSLock()
+    private let alignmentTracker = PianoKeyboardAlignmentTracker()
+    private var lastAlignmentConfiguration = PianoKeyboardConfiguration.fullSize
     private let pianoState = PianoState()
     private let midiInput = MIDIInput()
     private let previewLayer = AVSampleBufferDisplayLayer()
@@ -301,6 +306,28 @@ class ViewController: NSViewController {
     private var audioObservers: [AnyCancellable] = []
     private var bpSettingsObservers: [AnyCancellable] = []
 
+    private func toggleOverheadPiano(_ on: Bool) {
+        hostState.overheadKeyboardEnabled = on
+        alignmentTracker.reset()
+        hostState.overheadAlignmentConfidence = 0
+        if on {
+            hostState.overheadAlignmentStatus = "Starting overhead camera"
+            overheadCameraCapture.setPreferredZoomFactor(0.5)
+            overheadCameraCapture.start()
+            if let id = hostState.selectedOverheadCameraID,
+               let device = hostState.cameras.first(where: { $0.uniqueID == id }) {
+                overheadCameraCapture.setDevice(device)
+            }
+        } else {
+            hostState.overheadAlignmentStatus = "Off"
+            overheadCameraCapture.stop()
+            overheadCameraCapture.setPreferredZoomFactor(nil)
+            overheadFrameLock.lock()
+            latestOverheadFrame = nil
+            overheadFrameLock.unlock()
+        }
+    }
+
     private func toggleAudio(_ on: Bool) {
         if on {
             audioDetector.onEvent = { [weak self] event in
@@ -358,6 +385,8 @@ class ViewController: NSViewController {
         // Seed initial UI state.
         hostState.cameras = CameraCapture.availableDevices
         hostState.selectedCameraID = hostState.cameras.first?.uniqueID
+        hostState.selectedOverheadCameraID = hostState.cameras.dropFirst().first?.uniqueID
+            ?? hostState.cameras.first?.uniqueID
         hostState.audioInputs = AudioPitchDetector.availableInputs
         hostState.selectedAudioInputID = AVCaptureDevice.default(for: .audio)?.uniqueID
             ?? hostState.audioInputs.first?.uniqueID
@@ -373,6 +402,13 @@ class ViewController: NSViewController {
             self.frameLock.unlock()
         }
         cameraCapture.start()
+
+        overheadCameraCapture.onFrame = { [weak self] pb in
+            guard let self else { return }
+            self.overheadFrameLock.lock()
+            self.latestOverheadFrame = pb
+            self.overheadFrameLock.unlock()
+        }
 
         midiInput.onEvent = { [weak self] event in
             self?.pianoState.handle(event)
@@ -410,6 +446,12 @@ class ViewController: NSViewController {
             deactivate: { [weak self] in self?.deactivateCamera() },
             reconnect: { [weak self] in self?.reconnect() },
             cameraSelected: { [weak self] device in self?.cameraCapture.setDevice(device) },
+            overheadToggled: { [weak self] on in self?.toggleOverheadPiano(on) },
+            overheadCameraSelected: { [weak self] device in
+                self?.alignmentTracker.reset()
+                self?.overheadCameraCapture.setPreferredZoomFactor(0.5)
+                self?.overheadCameraCapture.setDevice(device)
+            },
             audioToggled: { [weak self] on in self?.toggleAudio(on) },
             audioInputSelected: { [weak self] device in
                 guard let self else { return }
@@ -611,42 +653,188 @@ class ViewController: NSViewController {
         ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
         ctx.fill(dst)
 
+        let activeNotes = pianoState.renderedVelocities(at: Date().timeIntervalSince1970)
+
         // Camera occupies the top portion; piano sits in the bottom band.
         // Drawing the camera into a constrained region (instead of the full
         // frame) means the piano no longer covers part of the camera image.
         let pianoFraction: CGFloat = 0.30
+        let pianoRegion = CGRect(x: 0, y: 0,
+                                  width: CGFloat(w),
+                                  height: CGFloat(h) * pianoFraction)
         let camRegion = CGRect(x: 0, y: CGFloat(h) * pianoFraction,
                                width: CGFloat(w),
                                height: CGFloat(h) * (1 - pianoFraction))
 
-        let cam = CIImage(cvPixelBuffer: frame)
-        let camW = cam.extent.width, camH = cam.extent.height
-        let scale = max(camRegion.width / camW, camRegion.height / camH)
-        let scaledW = camW * scale, scaledH = camH * scale
+        drawPixelBuffer(frame, into: ctx, region: camRegion, mirrored: mirrorCamera)
+
+        if hostState.overheadKeyboardEnabled, let overhead = currentOverheadFrame() {
+            drawOverheadPiano(overhead,
+                              into: ctx,
+                              region: pianoRegion,
+                              activeNotes: activeNotes)
+        } else {
+            hostState.overheadAlignmentStatus = hostState.overheadKeyboardEnabled ? "Waiting for overhead camera" : "Off"
+            // Piano + pedals along the bottom band.
+            PianoOverlay.draw(into: ctx, rect: dst,
+                              heightFraction: pianoFraction,
+                              activeNotes: activeNotes,
+                              pedals: pianoState.pedalsState)
+        }
+
+        return ctx.makeImage()
+    }
+
+    private func currentOverheadFrame() -> CVPixelBuffer? {
+        overheadFrameLock.lock()
+        let frame = latestOverheadFrame
+        overheadFrameLock.unlock()
+        return frame
+    }
+
+    private func drawPixelBuffer(_ frame: CVPixelBuffer,
+                                 into ctx: CGContext,
+                                 region: CGRect,
+                                 mirrored: Bool) {
+        let image = CIImage(cvPixelBuffer: frame)
+        let imageW = image.extent.width
+        let imageH = image.extent.height
+        let scale = max(region.width / imageW, region.height / imageH)
         let drawRect = CGRect(
-            x: camRegion.minX + (camRegion.width - scaledW) / 2,
-            y: camRegion.minY + (camRegion.height - scaledH) / 2,
-            width: scaledW,
-            height: scaledH
+            x: region.minX + (region.width - imageW * scale) / 2,
+            y: region.minY + (region.height - imageH * scale) / 2,
+            width: imageW * scale,
+            height: imageH * scale
         )
-        if let cg = ViewController.ciContext.createCGImage(cam, from: cam.extent) {
+        if let cg = ViewController.ciContext.createCGImage(image, from: image.extent) {
             ctx.saveGState()
-            ctx.clip(to: camRegion)
-            if mirrorCamera {
-                ctx.translateBy(x: 2 * camRegion.midX, y: 0)
+            ctx.clip(to: region)
+            if mirrored {
+                ctx.translateBy(x: 2 * region.midX, y: 0)
                 ctx.scaleBy(x: -1, y: 1)
             }
             ctx.draw(cg, in: drawRect)
             ctx.restoreGState()
         }
+    }
 
-        // Piano + pedals along the bottom band.
-        PianoOverlay.draw(into: ctx, rect: dst,
-                          heightFraction: pianoFraction,
-                          activeNotes: pianoState.renderedVelocities(at: Date().timeIntervalSince1970),
-                          pedals: pianoState.pedalsState)
+    private func drawOverheadPiano(_ frame: CVPixelBuffer,
+                                   into ctx: CGContext,
+                                   region: CGRect,
+                                   activeNotes: [UInt8: UInt8]) {
+        let configuration = PianoKeyboardConfiguration(keyCount: hostState.overheadKeyCount,
+                                                       lowestMIDINote: hostState.overheadLowestMIDINote)
+        if configuration != lastAlignmentConfiguration {
+            lastAlignmentConfiguration = configuration
+            alignmentTracker.reset()
+        }
 
-        return ctx.makeImage()
+        let image = CIImage(cvPixelBuffer: frame)
+        let imageW = image.extent.width
+        let imageH = image.extent.height
+        let scale = max(region.width / imageW, region.height / imageH)
+        let drawRect = CGRect(
+            x: region.minX + (region.width - imageW * scale) / 2,
+            y: region.minY + (region.height - imageH * scale) / 2,
+            width: imageW * scale,
+            height: imageH * scale
+        )
+
+        if let cg = ViewController.ciContext.createCGImage(image, from: image.extent) {
+            ctx.saveGState()
+            ctx.clip(to: region)
+            if hostState.overheadFlipVertical {
+                ctx.translateBy(x: 0, y: 2 * drawRect.midY)
+                ctx.scaleBy(x: 1, y: -1)
+            }
+            ctx.draw(cg, in: drawRect)
+            ctx.restoreGState()
+        }
+
+        alignmentTracker.submit(pixelBuffer: frame, configuration: configuration) { [weak self] result in
+            guard let self else { return }
+            if let result {
+                self.hostState.overheadAlignmentConfidence = result.confidence
+                self.hostState.overheadAlignmentStatus = String(
+                    format: "fit %.0f%%  %d keys  %.1f px",
+                    result.confidence * 100,
+                    result.matchedBlackKeyCount,
+                    result.medianErrorPixels
+                )
+            } else if self.alignmentTracker.alignment == nil {
+                self.hostState.overheadAlignmentConfidence = 0
+                self.hostState.overheadAlignmentStatus = "Searching for black keys"
+            }
+        }
+
+        if let alignment = alignmentTracker.alignment {
+            drawAlignedHighlights(alignment: alignment,
+                                  into: ctx,
+                                  sourceFrameSize: CGSize(width: imageW, height: imageH),
+                                  drawRect: drawRect,
+                                  clipRegion: region,
+                                  flipVertical: hostState.overheadFlipVertical,
+                                  activeNotes: activeNotes)
+        }
+    }
+
+    private func drawAlignedHighlights(alignment: PianoKeyboardAlignment,
+                                       into ctx: CGContext,
+                                       sourceFrameSize: CGSize,
+                                       drawRect: CGRect,
+                                       clipRegion: CGRect,
+                                       flipVertical: Bool,
+                                       activeNotes: [UInt8: UInt8]) {
+        let sx = drawRect.width / max(1, sourceFrameSize.width)
+        let sy = drawRect.height / max(1, sourceFrameSize.height)
+        var transform = flipVertical
+            ? CGAffineTransform(a: sx, b: 0, c: 0, d: -sy,
+                                tx: drawRect.minX, ty: drawRect.maxY)
+            : CGAffineTransform(a: sx, b: 0, c: 0, d: sy,
+                                tx: drawRect.minX, ty: drawRect.minY)
+
+        ctx.saveGState()
+        ctx.clip(to: clipRegion)
+        for (note, velocity) in activeNotes {
+            guard let path = alignment.screenPolygonForMIDINote(noteNumber: Int(note))?.copy(using: &transform) else {
+                continue
+            }
+            let bounds = path.boundingBoxOfPath
+            let intensity = max(0.25, CGFloat(velocity) / 127.0)
+            let color = CGColor(red: 0.20,
+                                green: 0.88 * intensity + 0.12,
+                                blue: 1,
+                                alpha: 0.55)
+
+            ctx.saveGState()
+            ctx.addPath(path)
+            ctx.clip()
+            if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                                         colors: [
+                                            CGColor(red: 0.75, green: 0.98, blue: 1, alpha: 0.85),
+                                            CGColor(red: 0.05, green: 0.55, blue: 1, alpha: 0.06)
+                                         ] as CFArray,
+                                         locations: [0, 1]) {
+                let radius = max(bounds.width, bounds.height) * 0.68
+                ctx.drawRadialGradient(gradient,
+                                       startCenter: CGPoint(x: bounds.midX, y: bounds.midY),
+                                       startRadius: 0,
+                                       endCenter: CGPoint(x: bounds.midX, y: bounds.midY),
+                                       endRadius: radius,
+                                       options: [.drawsAfterEndLocation])
+            }
+            ctx.restoreGState()
+
+            ctx.saveGState()
+            ctx.setShadow(offset: .zero, blur: 10,
+                          color: CGColor(red: 0.2, green: 0.9, blue: 1, alpha: 0.8))
+            ctx.setStrokeColor(color)
+            ctx.setLineWidth(max(1.5, min(bounds.width, bounds.height) * 0.08))
+            ctx.addPath(path)
+            ctx.strokePath()
+            ctx.restoreGState()
+        }
+        ctx.restoreGState()
     }
 
     private static let ciContext = CIContext(options: [.useSoftwareRenderer: false])

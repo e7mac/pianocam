@@ -26,6 +26,7 @@ final class HostState: ObservableObject {
 
     @Published var cameras: [AVCaptureDevice] = []
     @Published var selectedCameraID: String?
+    @Published var selectedOverheadCameraID: String?
 
     @Published var midiSources: [String] = []
 
@@ -33,6 +34,13 @@ final class HostState: ObservableObject {
     @Published var streamingToConsumer: Bool = false
 
     @Published var mirrorCamera: Bool = false
+
+    @Published var overheadKeyboardEnabled: Bool = false
+    @Published var overheadFlipVertical: Bool = false
+    @Published var overheadKeyCount: Int = 88
+    @Published var overheadLowestMIDINote: Int = 21
+    @Published var overheadAlignmentConfidence: Double = 0
+    @Published var overheadAlignmentStatus: String = "Off"
 
     @Published var audioEnabled: Bool = false
     @Published var audioLevel: Float = 0
@@ -72,6 +80,8 @@ struct HostActions {
     var deactivate: () -> Void
     var reconnect: () -> Void
     var cameraSelected: (AVCaptureDevice) -> Void
+    var overheadToggled: (Bool) -> Void
+    var overheadCameraSelected: (AVCaptureDevice) -> Void
     var audioToggled: (Bool) -> Void
     var audioInputSelected: (AVCaptureDevice) -> Void
     var audioModeChanged: (AudioPitchMode) -> Void
