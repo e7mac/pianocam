@@ -229,17 +229,15 @@ final class PianoKeyboardAlignmentDetector {
     /// source. Designed for finding rectangular shapes; works well on
     /// real photos where keys have clear rectangular boundaries but the
     /// contour-detector struggles because the keys' shadows / gaps
-    /// extend their contour shape. Returns candidates in the same
-    /// format as the contour-based detector for the rest of the
-    /// pipeline.
+    /// extend their contour shape.
+    ///
+    /// minimumAspectRatio / maximumAspectRatio refer to W/H. Black keys
+    /// have W/H ~0.1-0.2; the 0.05..0.6 range covers them tightly.
+    /// Broader ranges that try to catch white keys too pull in too much
+    /// noise (case edges, photo crops) and hurt the overall fit quality.
     private func detectRectangleCandidates(pixelBuffer: CVPixelBuffer,
                                            frameSize: CGSize) throws -> [Candidate] {
         let request = VNDetectRectanglesRequest()
-        // Black keys are taller than wide. minimumAspectRatio /
-        // maximumAspectRatio here refer to W/H (Apple's convention).
-        // 0.1..0.6 covers black keys from "very tall" to "moderately
-        // proportioned". White keys would need a different setting; for
-        // now this targets the black-key detector.
         request.minimumAspectRatio = 0.05
         request.maximumAspectRatio = 0.6
         request.minimumSize = 0.005    // ~0.5% of image dimension
