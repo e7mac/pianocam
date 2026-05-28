@@ -117,6 +117,11 @@ final class PianoKeyboardAlignmentDetector {
         let raw = try detectCandidates(kind: kind,
                                        pixelBuffer: pixelBuffer,
                                        frameSize: frameSize)
+        if ProcessInfo.processInfo.environment["PIANOCAM_DEBUG_CANDIDATES"] != nil {
+            NSLog("PianoCam: candidate-count kind=%@ raw=%d frameSize=%dx%d",
+                  kind == .black ? "black" : "white", raw.count,
+                  Int(frameSize.width), Int(frameSize.height))
+        }
         guard raw.count >= 7 else { return nil }
 
         let candidates = filterByCollinearity(raw)
@@ -158,7 +163,11 @@ final class PianoKeyboardAlignmentDetector {
                                   pixelBuffer: CVPixelBuffer,
                                   frameSize: CGSize) throws -> [Candidate] {
         let request = VNDetectContoursRequest()
-        request.contrastAdjustment = 1.0
+        // Vision applies contrast stretch before binarization; higher
+        // values sharpen weak key-vs-background boundaries that the
+        // default 1.0 (= no stretch) misses. 3.0 catches keys that
+        // would otherwise merge with shadow in real photos.
+        request.contrastAdjustment = 3.0
         request.detectsDarkOnLight = (kind == .black)
         request.maximumImageDimension = 960
 
