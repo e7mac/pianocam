@@ -128,6 +128,15 @@ final class PianoKeyboardAlignmentDetector {
         }
 
         let ordered = orderedAlongKeyboardAxis(candidates)
+        if ProcessInfo.processInfo.environment["PIANOCAM_DEBUG_CANDIDATES"] != nil {
+            let summary = ordered.prefix(50).map {
+                String(format: "(%.0f,%.0f %.0fx%.0f)",
+                       $0.center.x, $0.center.y,
+                       $0.bounds.width, $0.bounds.height)
+            }.joined(separator: " ")
+            NSLog("PianoCam: candidate-dump kind=%@ count=%d centers=%@",
+                  kind == .black ? "black" : "white", ordered.count, summary)
+        }
         guard let fit = bestFit(kind: kind,
                                 orderedCandidates: ordered,
                                 configuration: configuration,
@@ -186,8 +195,15 @@ final class PianoKeyboardAlignmentDetector {
                                 height: normalized.height * frameSize.height)
             let area = bounds.width * bounds.height
             let areaFraction = area / frameArea
-            let aspect = max(bounds.width / max(bounds.height, 1),
-                             bounds.height / max(bounds.width, 1))
+            // Keys are TALLER than wide in an overhead piano image
+            // (assuming the keyboard is roughly horizontal in the frame —
+            // the camera looking down at it). The old filter took
+            // max(w/h, h/w), which let wide-and-short contours (wood
+            // grain stripes in the cabinet above the keys, hand edges
+            // below) pass as "candidates" too. That polluted the
+            // candidate set with horizontal stripes scattered all over
+            // the y axis. Constrain to height/width > 1.35 instead.
+            let aspect = bounds.height / max(bounds.width, 1)
 
             if !(areaFraction > 0.00008 && areaFraction < 0.035) { rejArea += 1; continue }
             if !(aspect > 1.35 && aspect < 12) { rejAspect += 1; continue }
