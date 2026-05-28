@@ -236,73 +236,194 @@ final class PianoKeyboardAlignmentDetector {
                          orderedCandidates: [Candidate],
                          configuration: PianoKeyboardConfiguration,
                          frameSize: CGSize) -> Fit? {
+        // RANSAC-style robust fit. Real-world overhead photos miss keys —
+        // hand occlusion, glare, low contrast on dark backdrops — so we
+        // can't assume the detected candidates are N consecutive model
+        // black keys. Instead, enumerate plausible (modelFirst, modelLast)
+        // ranges that the candidates span in the model, hypothesize an
+        // alignment via linear interpolation between those endpoints, then
+        // count inliers (model keys whose projection lands near any
+        // candidate). The hypothesis with the most inliers wins, then we
+        // refit using just the inliers' corners for the final homography.
         let geometry = PianoKeyboardGeometry(configuration: configuration)
         let modelKeys = kind == .black ? geometry.blackKeys : geometry.whiteKeys
-        guard modelKeys.count >= 7 else { return nil }
+        let n = orderedCandidates.count
+        let m = modelKeys.count
+        guard m >= 7, n >= 7 else { return nil }
 
-        let usableCount = min(orderedCandidates.count, modelKeys.count)
-        guard usableCount >= 7 else { return nil }
+        // Cap the candidate set at the model size — extras are outliers we
+        // tolerate as long as the inlier count is high. But linear-interp
+        // hypothesis needs n <= m to be sensible; if n > m, slide a window.
+        // Coarse threshold accepts ~1.5 key widths of slop in the initial
+        // hypothesis (where linear interpolation between mFirst/mLast may
+        // mis-assign some candidates because real black-key spacing is
+        // non-uniform). After the refit on those inliers we tighten.
+        let frameMinDim = min(frameSize.width, frameSize.height)
+        let coarseThreshold = CGFloat(0.08) * frameMinDim
+        let fineThreshold = CGFloat(0.025) * frameMinDim
+        let candidateWindows: [[Candidate]] = {
+            if n <= m { return [orderedCandidates] }
+            var windows: [[Candidate]] = []
+            for start in 0...(n - m) {
+                windows.append(Array(orderedCandidates[start..<(start + m)]))
+            }
+            return windows
+        }()
+
+        // Normalize each candidate's position to 0..1 along the keyboard
+        // axis using projection onto the principal axis of the candidate
+        // set. Reusing the ordering axis derived in orderedAlongKeyboardAxis.
+        func normalizedPositions(_ candidates: [Candidate]) -> [CGFloat]? {
+            let mean = candidates.reduce(CGPoint.zero) {
+                CGPoint(x: $0.x + $1.center.x, y: $0.y + $1.center.y)
+            }
+            let cnt = CGFloat(candidates.count)
+            let center = CGPoint(x: mean.x / cnt, y: mean.y / cnt)
+            var xx: CGFloat = 0, xy: CGFloat = 0, yy: CGFloat = 0
+            for c in candidates {
+                let dx = c.center.x - center.x
+                let dy = c.center.y - center.y
+                xx += dx * dx; xy += dx * dy; yy += dy * dy
+            }
+            let angle = 0.5 * atan2(2 * xy, xx - yy)
+            var axis = CGPoint(x: cos(angle), y: sin(angle))
+            if abs(axis.x) < 0.2 { axis = CGPoint(x: -axis.y, y: axis.x) }
+            if axis.x < 0 { axis = CGPoint(x: -axis.x, y: -axis.y) }
+            let projs = candidates.map { $0.center.x * axis.x + $0.center.y * axis.y }
+            guard let lo = projs.min(), let hi = projs.max(), hi > lo else { return nil }
+            return projs.map { ($0 - lo) / (hi - lo) }
+        }
 
         var best: Fit?
-        let candidateWindows = candidateSlices(orderedCandidates, count: usableCount)
+        var rangesTried = 0, degenerateSkipped = 0, fitFailed = 0
+        var hypotheses = 0, coarseEnough = 0, fineEnough = 0, bestCoarseInliers = 0
 
-        for candidates in candidateWindows {
-            for start in 0...(modelKeys.count - candidates.count) {
-                let modelSlice = Array(modelKeys[start..<(start + candidates.count)])
-                evaluate(modelSlice: modelSlice, candidates: candidates, reversed: false, best: &best)
-                evaluate(modelSlice: modelSlice, candidates: candidates, reversed: true, best: &best)
+        for window in candidateWindows {
+            let k = window.count
+            guard let pos = normalizedPositions(window) else { continue }
+
+            for mFirst in 0...(m - k) {
+                for mLast in (mFirst + k - 1)..<m {
+                    rangesTried += 1
+                    // Build hypothesis: linearly interpolate each candidate's
+                    // position to a model index. We don't dedupe — real
+                    // candidates may cluster (multiple candidates mapping
+                    // to the same model index produces redundant
+                    // constraints, which the least-squares fit handles).
+                    // The inlier refinement step recovers the real
+                    // correspondence regardless.
+                    var modelIndices = [Int](repeating: 0, count: k)
+                    for i in 0..<k {
+                        let mi = Int((CGFloat(mFirst) + pos[i] * CGFloat(mLast - mFirst)).rounded())
+                        modelIndices[i] = max(mFirst, min(mLast, mi))
+                    }
+
+                    var observed: [CGPoint] = []
+                    var model: [CGPoint] = []
+                    observed.reserveCapacity(k * 4)
+                    model.reserveCapacity(k * 4)
+                    for (i, mi) in modelIndices.enumerated() {
+                        observed.append(contentsOf: window[i].corners)
+                        model.append(contentsOf: modelKeys[mi].modelPolygon)
+                    }
+                    guard let h0 = PianoHomography.fit(modelPoints: model, imagePoints: observed) else {
+                        fitFailed += 1
+                        continue
+                    }
+
+                    // Inlier search: for each model key, find nearest candidate.
+                    // Start with a generous (coarse) threshold to seed the
+                    // refit even when the linear-interp hypothesis is off by
+                    // a key or two. After refitting we re-check inliers with
+                    // a tighter threshold to score the final fit.
+                    func inliers(under threshold: CGFloat,
+                                 using homography: PianoHomography)
+                        -> [(PianoKeyGeometry, Candidate)] {
+                        var result: [(PianoKeyGeometry, Candidate)] = []
+                        for modelKey in modelKeys {
+                            let projected = homography.project(modelKey.modelCenter)
+                            var bestDist: CGFloat = .infinity
+                            var bestCand: Candidate? = nil
+                            for cand in orderedCandidates {
+                                let d = hypot(cand.center.x - projected.x,
+                                              cand.center.y - projected.y)
+                                if d < bestDist { bestDist = d; bestCand = cand }
+                            }
+                            if let bc = bestCand, bestDist <= threshold {
+                                result.append((modelKey, bc))
+                            }
+                        }
+                        return result
+                    }
+
+                    hypotheses += 1
+                    let coarse = inliers(under: coarseThreshold, using: h0)
+                    bestCoarseInliers = max(bestCoarseInliers, coarse.count)
+                    guard coarse.count >= 7 else { continue }
+                    coarseEnough += 1
+
+                    // Refit on coarse inliers
+                    var refObs: [CGPoint] = []
+                    var refMdl: [CGPoint] = []
+                    refObs.reserveCapacity(coarse.count * 4)
+                    refMdl.reserveCapacity(coarse.count * 4)
+                    for (modelKey, cand) in coarse {
+                        refObs.append(contentsOf: cand.corners)
+                        refMdl.append(contentsOf: modelKey.modelPolygon)
+                    }
+                    guard let hMid = PianoHomography.fit(modelPoints: refMdl, imagePoints: refObs) else {
+                        continue
+                    }
+
+                    // Tighten: take inliers under the fine threshold of the
+                    // refit homography, and refit one more time.
+                    let fine = inliers(under: fineThreshold, using: hMid)
+                    guard fine.count >= 7 else { continue }
+                    fineEnough += 1
+
+                    refObs.removeAll(keepingCapacity: true)
+                    refMdl.removeAll(keepingCapacity: true)
+                    for (modelKey, cand) in fine {
+                        refObs.append(contentsOf: cand.corners)
+                        refMdl.append(contentsOf: modelKey.modelPolygon)
+                    }
+                    guard let hFinal = PianoHomography.fit(modelPoints: refMdl, imagePoints: refObs) else {
+                        continue
+                    }
+
+                    var errors: [CGFloat] = []
+                    errors.reserveCapacity(fine.count)
+                    for (modelKey, cand) in fine {
+                        let p = hFinal.project(modelKey.modelCenter)
+                        errors.append(hypot(cand.center.x - p.x, cand.center.y - p.y))
+                    }
+                    errors.sort()
+                    let median = errors[errors.count / 2]
+                    let fit = Fit(homography: hFinal,
+                                  medianError: median,
+                                  candidates: fine.map { $0.1 })
+                    // Prefer more inliers; on ties prefer lower median error.
+                    if let bf = best {
+                        if fit.candidates.count > bf.candidates.count ||
+                            (fit.candidates.count == bf.candidates.count &&
+                             fit.medianError < bf.medianError) {
+                            best = fit
+                        }
+                    } else {
+                        best = fit
+                    }
+                }
             }
         }
+
+        if ProcessInfo.processInfo.environment["PIANOCAM_ALIGNMENT_TRACE"] != nil {
+            NSLog("PianoCam: alignment-trace bestFit kind=%@ n=%d m=%d ranges=%d degenerate=%d fitFailed=%d hypotheses=%d coarse>=7=%d fine>=7=%d bestCoarseInliers=%d coarseThresh=%.0fpx",
+                  kind == .black ? "black" : "white",
+                  n, m, rangesTried, degenerateSkipped, fitFailed, hypotheses,
+                  coarseEnough, fineEnough, bestCoarseInliers,
+                  Double(coarseThreshold))
+        }
         return best
-    }
-
-    private func candidateSlices(_ candidates: [Candidate], count: Int) -> [[Candidate]] {
-        guard candidates.count > count else { return [candidates] }
-        var slices: [[Candidate]] = []
-        for start in 0...(candidates.count - count) {
-            slices.append(Array(candidates[start..<(start + count)]))
-        }
-        return slices
-    }
-
-    private func evaluate(modelSlice: [PianoKeyGeometry],
-                          candidates: [Candidate],
-                          reversed: Bool,
-                          best: inout Fit?) {
-        // Use four corners per candidate instead of just the center. Black-key
-        // model centers are all collinear in y (every modelCenter sits on
-        // y = (blackFrontY + 1) / 2), which makes the homography normal-equations
-        // matrix rank-deficient. The polygon corners span y = blackFrontY..1
-        // in model space, giving the solver the second dimension of variation
-        // it needs. We use the contour's actual corners (extreme-direction
-        // points on the perimeter) rather than the axis-aligned bbox so the
-        // homography sees the in-image rotation and perspective too.
-        let orderedCandidates = reversed ? Array(candidates.reversed()) : candidates
-        var observed: [CGPoint] = []
-        var model: [CGPoint] = []
-        observed.reserveCapacity(orderedCandidates.count * 4)
-        model.reserveCapacity(orderedCandidates.count * 4)
-        for (idx, key) in modelSlice.enumerated() {
-            observed.append(contentsOf: orderedCandidates[idx].corners)
-            model.append(contentsOf: key.modelPolygon)
-        }
-        guard let homography = PianoHomography.fit(modelPoints: model, imagePoints: observed) else { return }
-
-        var errors: [CGFloat] = []
-        errors.reserveCapacity(observed.count)
-        for (m, observedPoint) in zip(model, observed) {
-            let projected = homography.project(m)
-            errors.append(hypot(projected.x - observedPoint.x,
-                                projected.y - observedPoint.y))
-        }
-        errors.sort()
-        let median = errors[errors.count / 2]
-        let fit = Fit(homography: homography,
-                      medianError: median,
-                      candidates: orderedCandidates)
-        if best == nil || fit.medianError < best!.medianError {
-            best = fit
-        }
     }
 
     private func confidenceScore(kind: KeyKind,
