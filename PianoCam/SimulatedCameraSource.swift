@@ -51,8 +51,18 @@ final class SimulatedCameraSource {
     /// Called whenever the warp params change, with the resulting corners.
     var onCorners: ((Corners) -> Void)?
 
+    /// Camera-like degradation applied after the perspective warp. Useful for
+    /// stress-testing an aligner against blur / lighting falloff / sensor noise
+    /// that a clean rendered image would never have.
+    struct Degradation: Equatable {
+        var blurRadius: CGFloat = 0   // Gaussian blur, 0..6 px
+        var vignette: CGFloat = 0     // 0..2 (intensity)
+        var noise: CGFloat = 0        // 0..0.4 (opacity of grain overlay)
+    }
+
     /// Mutate via `setParams` so we can keep the cached keyboard image valid.
     private(set) var params = WarpParams()
+    private(set) var degradation = Degradation()
 
     private let outWidth: Int
     private let outHeight: Int
@@ -61,6 +71,7 @@ final class SimulatedCameraSource {
     private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
     private var timer: DispatchSourceTimer?
     private var cachedKeyboard: CIImage?
+    private var customSource: CIImage?
     private let keyboardWidth = 1280
     private let keyboardHeight = 220
 
@@ -94,6 +105,20 @@ final class SimulatedCameraSource {
             guard let self else { return }
             self.params = p
             self.publishCorners()
+        }
+    }
+
+    func setDegradation(_ d: Degradation) {
+        queue.async { [weak self] in
+            self?.degradation = d
+        }
+    }
+
+    /// Swap the warp's source image. Pass nil to fall back to the synthetic
+    /// 88-key render.
+    func setCustomImage(_ ci: CIImage?) {
+        queue.async { [weak self] in
+            self?.customSource = ci
         }
     }
 
@@ -137,7 +162,7 @@ final class SimulatedCameraSource {
     }
 
     private func renderFrame() -> CVPixelBuffer? {
-        guard let kb = keyboardImage() else { return nil }
+        guard let source = customSource ?? keyboardImage() else { return nil }
         let corners = computeCorners()
 
         // CoreImage uses lower-left origin; convert from top-left image coords.
@@ -145,10 +170,10 @@ final class SimulatedCameraSource {
         func flip(_ p: CGPoint) -> CGPoint { CGPoint(x: p.x, y: h - p.y) }
 
         guard let filter = CIFilter(name: "CIPerspectiveTransform") else { return nil }
-        filter.setValue(kb, forKey: kCIInputImageKey)
+        filter.setValue(source, forKey: kCIInputImageKey)
         // Source image's top-left corner maps to the output's top-left, etc.
-        // The keyboard CGImage was built with CG's bottom-left origin, so its
-        // "top" in image-space is at y = keyboardHeight. We flip both image and
+        // The source CIImage was built with CG's bottom-left origin, so its
+        // "top" in image-space is at y = extent.maxY. We flip both image and
         // output corners through the same axis flip so the mapping lines up.
         filter.setValue(CIVector(cgPoint: flip(corners.topLeft)),     forKey: "inputTopLeft")
         filter.setValue(CIVector(cgPoint: flip(corners.topRight)),    forKey: "inputTopRight")
@@ -159,10 +184,11 @@ final class SimulatedCameraSource {
         // Dark grey background so the unrendered region looks like a real
         // tabletop, not bright magenta — and so the aligner has clear contrast
         // against the white keys.
+        let outputRect = CGRect(x: 0, y: 0, width: outWidth, height: outHeight)
         let bg = CIImage(color: CIColor(red: 0.12, green: 0.10, blue: 0.10))
-            .cropped(to: CGRect(x: 0, y: 0, width: outWidth, height: outHeight))
-        let composed = warped.composited(over: bg)
-            .cropped(to: CGRect(x: 0, y: 0, width: outWidth, height: outHeight))
+            .cropped(to: outputRect)
+        var img = warped.composited(over: bg).cropped(to: outputRect)
+        img = applyDegradation(to: img, rect: outputRect)
 
         var pb: CVPixelBuffer?
         let attrs: CFDictionary = [
@@ -172,8 +198,38 @@ final class SimulatedCameraSource {
         guard CVPixelBufferCreate(kCFAllocatorDefault, outWidth, outHeight,
                                   kCVPixelFormatType_32BGRA, attrs, &pb) == kCVReturnSuccess,
               let buffer = pb else { return nil }
-        ciContext.render(composed, to: buffer)
+        ciContext.render(img, to: buffer)
         return buffer
+    }
+
+    private func applyDegradation(to input: CIImage, rect: CGRect) -> CIImage {
+        var img = input
+        if degradation.blurRadius > 0.05,
+           let f = CIFilter(name: "CIGaussianBlur") {
+            f.setValue(img, forKey: kCIInputImageKey)
+            f.setValue(degradation.blurRadius, forKey: kCIInputRadiusKey)
+            if let out = f.outputImage { img = out.cropped(to: rect) }
+        }
+        if degradation.vignette > 0.01,
+           let f = CIFilter(name: "CIVignette") {
+            f.setValue(img, forKey: kCIInputImageKey)
+            f.setValue(degradation.vignette, forKey: "inputIntensity")
+            f.setValue(1.5, forKey: "inputRadius")
+            if let out = f.outputImage { img = out }
+        }
+        if degradation.noise > 0.01,
+           let r = CIFilter(name: "CIRandomGenerator")?.outputImage?.cropped(to: rect),
+           let m = CIFilter(name: "CIColorMatrix") {
+            m.setValue(r, forKey: kCIInputImageKey)
+            m.setValue(CIVector(x: 0.3, y: 0.3, z: 0.3, w: 0), forKey: "inputRVector")
+            m.setValue(CIVector(x: 0.3, y: 0.3, z: 0.3, w: 0), forKey: "inputGVector")
+            m.setValue(CIVector(x: 0.3, y: 0.3, z: 0.3, w: 0), forKey: "inputBVector")
+            m.setValue(CIVector(x: 0, y: 0, z: 0, w: degradation.noise), forKey: "inputAVector")
+            if let grain = m.outputImage {
+                img = grain.composited(over: img).cropped(to: rect)
+            }
+        }
+        return img
     }
 
     private func publishCorners() {

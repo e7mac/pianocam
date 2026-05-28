@@ -81,6 +81,9 @@ struct ControlPanel: View {
                     state.simPanX = 0
                     state.simPanY = 0
                     state.simScale = 0.85
+                    state.simBlur = 0
+                    state.simVignette = 0
+                    state.simNoise = 0
                 }
                 .controlSize(.small)
                 Button("Randomize") {
@@ -90,6 +93,9 @@ struct ControlPanel: View {
                     state.simPanX = Double.random(in: -0.25...0.25)
                     state.simPanY = Double.random(in: -0.15...0.15)
                     state.simScale = Double.random(in: 0.6...1.05)
+                    state.simBlur = Double.random(in: 0...2.5)
+                    state.simVignette = Double.random(in: 0...1.2)
+                    state.simNoise = Double.random(in: 0...0.15)
                 }
                 .controlSize(.small)
                 .help("Pick random plausible camera-misalignment values for testing the aligner.")
@@ -100,6 +106,31 @@ struct ControlPanel: View {
             simSlider("Pan X",             value: $state.simPanX,            range: -0.5 ... 0.5)
             simSlider("Pan Y",             value: $state.simPanY,            range: -0.5 ... 0.5)
             simSlider("Scale (zoom)",      value: $state.simScale,           range:  0.3 ... 1.5)
+
+            Divider().padding(.vertical, 2)
+
+            HStack(spacing: 8) {
+                Text("Source image")
+                    .font(.system(size: 11))
+                    .frame(width: 140, alignment: .leading)
+                Text(state.simCustomImageName.isEmpty ? "Synthetic 88-key render"
+                                                     : state.simCustomImageName)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
+                Button("Load image…", action: actions.loadSimImage)
+                    .controlSize(.small)
+                    .help("Pick a photo of a real piano keyboard to use as the warp source.")
+                Button("Clear", action: actions.clearSimImage)
+                    .controlSize(.small)
+                    .disabled(state.simCustomImageName.isEmpty)
+            }
+
+            simSlider("Blur (px)",         value: $state.simBlur,            range:  0.0 ... 6.0)
+            simSlider("Vignette",          value: $state.simVignette,        range:  0.0 ... 2.0)
+            simSlider("Noise",             value: $state.simNoise,           range:  0.0 ... 0.4)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)

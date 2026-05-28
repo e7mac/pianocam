@@ -59,6 +59,15 @@ final class HostState: ObservableObject {
     @Published var simPanX: Double = 0
     @Published var simPanY: Double = 0
     @Published var simScale: Double = 0.85
+    // Camera-like degradation applied to the simulated stream — so a future
+    // aligner has to cope with blur / vignette / noise the way it would on a
+    // real webcam feed.
+    @Published var simBlur: Double = 0
+    @Published var simVignette: Double = 0
+    @Published var simNoise: Double = 0
+    /// User-readable filename of the loaded custom piano image (empty = use
+    /// the synthetic render).
+    @Published var simCustomImageName: String = ""
 
     /// Video processing UI state, mirrored from VideoProcessor.
     @Published var videoProcessing: Bool = false
@@ -86,4 +95,6 @@ struct HostActions {
     var processVideo: () -> Void
     var revealOutput: () -> Void
     var simulatedCameraToggled: (Bool) -> Void
+    var loadSimImage: () -> Void
+    var clearSimImage: () -> Void
 }
