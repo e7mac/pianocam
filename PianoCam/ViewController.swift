@@ -785,6 +785,18 @@ class ViewController: NSViewController {
                 self.hostState.overheadAlignmentConfidence = 0
                 self.hostState.overheadAlignmentStatus = "Searching for black keys"
             }
+            // Per-detection trace for regression scripts. Enabled by env var
+            // so production runs aren't noisy. The simulator launcher sets
+            // it automatically when cycling a directory.
+            if ProcessInfo.processInfo.environment["PIANOCAM_ALIGNMENT_TRACE"] != nil {
+                if let result {
+                    NSLog("PianoCam: alignment-trace confidence=%.2f keys=%d error=%.1fpx",
+                          result.confidence, result.matchedBlackKeyCount,
+                          Double(result.medianErrorPixels))
+                } else {
+                    NSLog("PianoCam: alignment-trace confidence=0.00 keys=0 error=nil")
+                }
+            }
         }
 
         if let alignment = alignmentTracker.alignment {

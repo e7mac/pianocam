@@ -118,7 +118,7 @@ final class PianoKeyboardAlignmentDetector {
         let contours = observation.topLevelContours
         let frameArea = max(1, frameSize.width * frameSize.height)
         var candidates: [Candidate] = []
-
+        var rejArea = 0, rejAspect = 0, rejCorners = 0
         for contour in contours {
             let normalized = contour.normalizedPath.boundingBoxOfPath
             guard normalized.width > 0, normalized.height > 0 else { continue }
@@ -132,19 +132,22 @@ final class PianoKeyboardAlignmentDetector {
             let aspect = max(bounds.width / max(bounds.height, 1),
                              bounds.height / max(bounds.width, 1))
 
-            guard areaFraction > 0.00008,
-                  areaFraction < 0.035,
-                  aspect > 1.35,
-                  aspect < 12 else { continue }
+            if !(areaFraction > 0.00008 && areaFraction < 0.035) { rejArea += 1; continue }
+            if !(aspect > 1.35 && aspect < 12) { rejAspect += 1; continue }
 
             let corners = Self.cornersFromContour(contour, frameSize: frameSize)
-            guard corners.count == 4 else { continue }
+            if corners.count != 4 { rejCorners += 1; continue }
             candidates.append(Candidate(center: CGPoint(x: bounds.midX, y: bounds.midY),
                                         bounds: bounds,
                                         area: area,
                                         corners: corners))
         }
 
+        if ProcessInfo.processInfo.environment["PIANOCAM_ALIGNMENT_TRACE"] != nil {
+            NSLog("PianoCam: alignment-trace topLevelContours=%d accepted=%d rejArea=%d rejAspect=%d rejCorners=%d frame=%dx%d",
+                  contours.count, candidates.count, rejArea, rejAspect, rejCorners,
+                  Int(frameSize.width), Int(frameSize.height))
+        }
         return Array(candidates
             .sorted { $0.area > $1.area }
             .prefix(64))
