@@ -964,8 +964,15 @@ class ViewController: NSViewController {
 
         // Now composite (1280x720, top-left origin) → image coords. The
         // overhead band uses aspect-fit; drawRect is in composite-pixel
-        // space.
+        // space. Reject clicks outside the overhead's drawRect — they're
+        // either in the webcam top portion or in the band's letterboxed
+        // black bars; either way they don't represent a key position.
         let dr = geom.drawRect
+        guard composite.x >= dr.minX && composite.x <= dr.maxX &&
+              composite.y >= dr.minY && composite.y <= dr.maxY else {
+            NSSound.beep()
+            return
+        }
         let inDraw = CGPoint(x: composite.x - dr.minX, y: composite.y - dr.minY)
         let sx = dr.width / max(1, geom.sourceFrameSize.width)
         let sy = dr.height / max(1, geom.sourceFrameSize.height)
