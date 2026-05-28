@@ -114,10 +114,11 @@ final class PianoKeyboardAlignmentDetector {
                 configuration: PianoKeyboardConfiguration) throws -> PianoKeyboardAlignment? {
         let frameSize = CGSize(width: CVPixelBufferGetWidth(pixelBuffer),
                                height: CVPixelBufferGetHeight(pixelBuffer))
-        // Try both key classes and keep the higher-confidence result. The
-        // overhead of the second pass is small relative to one VNDetectContours
-        // call, and the two classes are complementary across the lighting
-        // conditions we see in practice.
+        // Three candidate sources, pick the highest-confidence result:
+        //  - contour kind=black (works best on light-backed images)
+        //  - contour kind=white (works on dark-backed photos)
+        //  - rectangle detection (works on photos where contour bbox is
+        //    polluted by shadows but the key's rectangle is clean)
         let attempts: [PianoKeyboardAlignment?] = [
             try? attempt(kind: .black,
                          pixelBuffer: pixelBuffer,
@@ -126,9 +127,47 @@ final class PianoKeyboardAlignmentDetector {
             try? attempt(kind: .white,
                          pixelBuffer: pixelBuffer,
                          configuration: configuration,
-                         frameSize: frameSize)
+                         frameSize: frameSize),
+            try? attemptRectangles(pixelBuffer: pixelBuffer,
+                                   configuration: configuration,
+                                   frameSize: frameSize)
         ]
         return attempts.compactMap { $0 }.max { $0.confidence < $1.confidence }
+    }
+
+    private func attemptRectangles(pixelBuffer: CVPixelBuffer,
+                                   configuration: PianoKeyboardConfiguration,
+                                   frameSize: CGSize) throws -> PianoKeyboardAlignment? {
+        let raw = try detectRectangleCandidates(pixelBuffer: pixelBuffer,
+                                                frameSize: frameSize)
+        if ProcessInfo.processInfo.environment["PIANOCAM_DEBUG_CANDIDATES"] != nil {
+            NSLog("PianoCam: candidate-count kind=rect raw=%d frameSize=%dx%d",
+                  raw.count, Int(frameSize.width), Int(frameSize.height))
+        }
+        guard raw.count >= 7 else { return nil }
+
+        let afterEdges = filterAwayFromEdges(raw, frameSize: frameSize)
+        let afterHeight = filterByConsistentHeight(afterEdges)
+        let afterY = filterByDominantYBand(afterHeight)
+        let candidates = filterByCollinearity(afterY)
+        guard candidates.count >= 7 else { return nil }
+
+        let ordered = orderedAlongKeyboardAxis(candidates)
+        guard let fit = bestFit(kind: .black,
+                                orderedCandidates: ordered,
+                                configuration: configuration,
+                                frameSize: frameSize) else { return nil }
+
+        let confidence = confidenceScore(kind: .black,
+                                         candidateCount: fit.candidates.count,
+                                         medianError: fit.medianError,
+                                         frameSize: frameSize)
+        return PianoKeyboardAlignment(configuration: configuration,
+                                      homography: fit.homography,
+                                      frameSize: frameSize,
+                                      confidence: confidence,
+                                      medianErrorPixels: fit.medianError,
+                                      matchedKeyCount: fit.candidates.count)
     }
 
     private func attempt(kind: KeyKind,
@@ -184,6 +223,65 @@ final class PianoKeyboardAlignmentDetector {
                                       confidence: confidence,
                                       medianErrorPixels: fit.medianError,
                                       matchedKeyCount: fit.candidates.count)
+    }
+
+    /// Find rectangles via VNDetectRectanglesRequest as a candidate
+    /// source. Designed for finding rectangular shapes; works well on
+    /// real photos where keys have clear rectangular boundaries but the
+    /// contour-detector struggles because the keys' shadows / gaps
+    /// extend their contour shape. Returns candidates in the same
+    /// format as the contour-based detector for the rest of the
+    /// pipeline.
+    private func detectRectangleCandidates(pixelBuffer: CVPixelBuffer,
+                                           frameSize: CGSize) throws -> [Candidate] {
+        let request = VNDetectRectanglesRequest()
+        // Black keys are taller than wide. minimumAspectRatio /
+        // maximumAspectRatio here refer to W/H (Apple's convention).
+        // 0.1..0.6 covers black keys from "very tall" to "moderately
+        // proportioned". White keys would need a different setting; for
+        // now this targets the black-key detector.
+        request.minimumAspectRatio = 0.05
+        request.maximumAspectRatio = 0.6
+        request.minimumSize = 0.005    // ~0.5% of image dimension
+        request.minimumConfidence = 0.3
+        request.quadratureTolerance = 30
+        request.maximumObservations = 64
+
+        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer,
+                                            orientation: .up,
+                                            options: [:])
+        try handler.perform([request])
+        guard let observations = request.results else { return [] }
+
+        var candidates: [Candidate] = []
+        for obs in observations {
+            // Vision rect observations give us 4 normalized corner
+            // points (TL, TR, BR, BL in display terms; Y is bottom-
+            // origin in Vision's normalized space). Convert to our
+            // pixel coord system the same way the contour detector does.
+            let tl = CGPoint(x: obs.topLeft.x * frameSize.width,
+                             y: obs.topLeft.y * frameSize.height)
+            let tr = CGPoint(x: obs.topRight.x * frameSize.width,
+                             y: obs.topRight.y * frameSize.height)
+            let br = CGPoint(x: obs.bottomRight.x * frameSize.width,
+                             y: obs.bottomRight.y * frameSize.height)
+            let bl = CGPoint(x: obs.bottomLeft.x * frameSize.width,
+                             y: obs.bottomLeft.y * frameSize.height)
+            let xs = [tl.x, tr.x, br.x, bl.x]
+            let ys = [tl.y, tr.y, br.y, bl.y]
+            let bounds = CGRect(x: xs.min() ?? 0,
+                                y: ys.min() ?? 0,
+                                width: (xs.max() ?? 0) - (xs.min() ?? 0),
+                                height: (ys.max() ?? 0) - (ys.min() ?? 0))
+            candidates.append(Candidate(
+                center: CGPoint(x: (tl.x + tr.x + br.x + bl.x) / 4,
+                                y: (tl.y + tr.y + br.y + bl.y) / 4),
+                bounds: bounds,
+                area: bounds.width * bounds.height,
+                corners: [bl, br, tr, tl]
+            ))
+        }
+        return candidates
     }
 
     private func detectCandidates(kind: KeyKind,
