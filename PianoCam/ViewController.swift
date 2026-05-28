@@ -27,6 +27,7 @@ class ViewController: NSViewController {
     private let frameLock = NSLock()
     private let overheadFrameLock = NSLock()
     private let alignmentTracker = PianoKeyboardAlignmentTracker()
+    private let handMaskDetector = HandMaskDetector()
     private var lastAlignmentConfiguration = PianoKeyboardConfiguration.fullSize
     private let pianoState = PianoState()
     private let midiInput = MIDIInput()
@@ -330,6 +331,7 @@ class ViewController: NSViewController {
     private func toggleOverheadPiano(_ on: Bool) {
         hostState.overheadKeyboardEnabled = on
         alignmentTracker.reset()
+        handMaskDetector.reset()
         hostState.overheadAlignmentConfidence = 0
         if on {
             hostState.overheadAlignmentStatus = "Starting overhead camera"
@@ -798,6 +800,11 @@ class ViewController: NSViewController {
             ctx.restoreGState()
         }
 
+        // Hand mask runs in parallel — independent throttle, independent
+        // queue. The two pipelines share nothing; the alignment provides
+        // H and the hand mask shapes where the overlay is allowed to draw.
+        handMaskDetector.submit(pixelBuffer: frame)
+
         alignmentTracker.submit(pixelBuffer: frame, configuration: configuration) { [weak self] result in
             guard let self else { return }
             if let result {
@@ -833,7 +840,8 @@ class ViewController: NSViewController {
                                   drawRect: drawRect,
                                   clipRegion: region,
                                   flipVertical: hostState.overheadFlipVertical,
-                                  activeNotes: activeNotes)
+                                  activeNotes: activeNotes,
+                                  handMask: handMaskDetector.mask)
         }
     }
 
@@ -843,7 +851,8 @@ class ViewController: NSViewController {
                                        drawRect: CGRect,
                                        clipRegion: CGRect,
                                        flipVertical: Bool,
-                                       activeNotes: [UInt8: UInt8]) {
+                                       activeNotes: [UInt8: UInt8],
+                                       handMask: (path: CGPath, frameSize: CGSize)? = nil) {
         let sx = drawRect.width / max(1, sourceFrameSize.width)
         let sy = drawRect.height / max(1, sourceFrameSize.height)
         var transform = flipVertical
@@ -854,6 +863,25 @@ class ViewController: NSViewController {
 
         ctx.saveGState()
         ctx.clip(to: clipRegion)
+
+        // If the hand-mask detector has a fresh mask for a compatible
+        // frame size, exclude the hand region from where the overlay can
+        // draw. The overlay is rendered in the same image-space the mask
+        // was computed in, scaled by the same transform — clip out the
+        // hand polygon AFTER applying that transform.
+        if let hm = handMask,
+           abs(hm.frameSize.width - sourceFrameSize.width) < 1,
+           abs(hm.frameSize.height - sourceFrameSize.height) < 1,
+           let scaledMask = hm.path.copy(using: &transform) {
+            // Build a path that is `clipRegion - handMask`. CGContext
+            // clipping is an intersection, so we add the inverse: the
+            // full region minus the mask via an even-odd fill rule.
+            let combined = CGMutablePath()
+            combined.addRect(clipRegion)
+            combined.addPath(scaledMask)
+            ctx.addPath(combined)
+            ctx.clip(using: .evenOdd)
+        }
 
         // Debug: outline every key + landmark middle C in green so we
         // can see whether the overlay rotation, scale, and position
