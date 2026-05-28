@@ -42,12 +42,12 @@ else
 fi
 
 DERIVED="$HOME/Library/Developer/Xcode/DerivedData"
-APP_PATH="$(find "$DERIVED" -name PianoCam.app -path '*/Debug/*' -maxdepth 6 2>/dev/null | head -1)"
+APP_PATH="$(find "$DERIVED" -name PianoCam.app -path '*/Debug/*' -not -path '*/Index.noindex/*' -maxdepth 6 2>/dev/null | head -1)"
 
 if [[ -z "$APP_PATH" ]] || [[ ! -d "$APP_PATH" ]]; then
   echo "Building PianoCam (Debug)…"
   xcodebuild -project PianoCam.xcodeproj -scheme PianoCam -configuration Debug build -quiet
-  APP_PATH="$(find "$DERIVED" -name PianoCam.app -path '*/Debug/*' -maxdepth 6 2>/dev/null | head -1)"
+  APP_PATH="$(find "$DERIVED" -name PianoCam.app -path '*/Debug/*' -not -path '*/Index.noindex/*' -maxdepth 6 2>/dev/null | head -1)"
 fi
 
 echo "Source:    $SRC"

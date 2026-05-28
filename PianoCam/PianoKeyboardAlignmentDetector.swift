@@ -204,11 +204,29 @@ final class PianoKeyboardAlignmentDetector {
                           candidates: [Candidate],
                           reversed: Bool,
                           best: inout Fit?) {
-        let observed = reversed ? candidates.reversed().map(\.center) : candidates.map(\.center)
-        let model = modelSlice.map(\.modelCenter)
+        // Use four bounding-box corners per candidate instead of just the
+        // center. Black-key model centers are all collinear in y (every
+        // modelCenter sits on y = (blackFrontY + 1) / 2), which makes the
+        // homography normal-equations matrix rank-deficient. The polygon
+        // corners span y = blackFrontY..1 in model space, giving the solver
+        // the second dimension of variation it needs.
+        let orderedCandidates = reversed ? Array(candidates.reversed()) : candidates
+        var observed: [CGPoint] = []
+        var model: [CGPoint] = []
+        observed.reserveCapacity(orderedCandidates.count * 4)
+        model.reserveCapacity(orderedCandidates.count * 4)
+        for (idx, key) in modelSlice.enumerated() {
+            let b = orderedCandidates[idx].bounds
+            observed.append(CGPoint(x: b.minX, y: b.minY))
+            observed.append(CGPoint(x: b.maxX, y: b.minY))
+            observed.append(CGPoint(x: b.maxX, y: b.maxY))
+            observed.append(CGPoint(x: b.minX, y: b.maxY))
+            model.append(contentsOf: key.modelPolygon)
+        }
         guard let homography = PianoHomography.fit(modelPoints: model, imagePoints: observed) else { return }
 
         var errors: [CGFloat] = []
+        errors.reserveCapacity(observed.count)
         for (m, observedPoint) in zip(model, observed) {
             let projected = homography.project(m)
             errors.append(hypot(projected.x - observedPoint.x,
@@ -218,7 +236,7 @@ final class PianoKeyboardAlignmentDetector {
         let median = errors[errors.count / 2]
         let fit = Fit(homography: homography,
                       medianError: median,
-                      candidates: candidates)
+                      candidates: orderedCandidates)
         if best == nil || fit.medianError < best!.medianError {
             best = fit
         }
