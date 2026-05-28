@@ -63,6 +63,13 @@ final class PianoKeyboardAlignmentDetector {
         let center: CGPoint
         let bounds: CGRect
         let area: CGFloat
+        /// Four corners of the contour in [TL, TR, BR, BL] order matching
+        /// the model polygon, in our pixel coordinate system. Found by
+        /// extreme-direction search on the contour's perimeter points so a
+        /// rotated/perspective-warped key contributes its actual rotated
+        /// corners — not the loose axis-aligned bounding box, which would
+        /// strip away the rotation/perspective signal the homography needs.
+        let corners: [CGPoint]
     }
 
     private struct Fit {
@@ -130,9 +137,12 @@ final class PianoKeyboardAlignmentDetector {
                   aspect > 1.35,
                   aspect < 12 else { continue }
 
+            let corners = Self.cornersFromContour(contour, frameSize: frameSize)
+            guard corners.count == 4 else { continue }
             candidates.append(Candidate(center: CGPoint(x: bounds.midX, y: bounds.midY),
                                         bounds: bounds,
-                                        area: area))
+                                        area: area,
+                                        corners: corners))
         }
 
         return Array(candidates
@@ -204,23 +214,21 @@ final class PianoKeyboardAlignmentDetector {
                           candidates: [Candidate],
                           reversed: Bool,
                           best: inout Fit?) {
-        // Use four bounding-box corners per candidate instead of just the
-        // center. Black-key model centers are all collinear in y (every
-        // modelCenter sits on y = (blackFrontY + 1) / 2), which makes the
-        // homography normal-equations matrix rank-deficient. The polygon
-        // corners span y = blackFrontY..1 in model space, giving the solver
-        // the second dimension of variation it needs.
+        // Use four corners per candidate instead of just the center. Black-key
+        // model centers are all collinear in y (every modelCenter sits on
+        // y = (blackFrontY + 1) / 2), which makes the homography normal-equations
+        // matrix rank-deficient. The polygon corners span y = blackFrontY..1
+        // in model space, giving the solver the second dimension of variation
+        // it needs. We use the contour's actual corners (extreme-direction
+        // points on the perimeter) rather than the axis-aligned bbox so the
+        // homography sees the in-image rotation and perspective too.
         let orderedCandidates = reversed ? Array(candidates.reversed()) : candidates
         var observed: [CGPoint] = []
         var model: [CGPoint] = []
         observed.reserveCapacity(orderedCandidates.count * 4)
         model.reserveCapacity(orderedCandidates.count * 4)
         for (idx, key) in modelSlice.enumerated() {
-            let b = orderedCandidates[idx].bounds
-            observed.append(CGPoint(x: b.minX, y: b.minY))
-            observed.append(CGPoint(x: b.maxX, y: b.minY))
-            observed.append(CGPoint(x: b.maxX, y: b.maxY))
-            observed.append(CGPoint(x: b.minX, y: b.maxY))
+            observed.append(contentsOf: orderedCandidates[idx].corners)
             model.append(contentsOf: key.modelPolygon)
         }
         guard let homography = PianoHomography.fit(modelPoints: model, imagePoints: observed) else { return }
@@ -253,5 +261,44 @@ final class PianoKeyboardAlignmentDetector {
 
     private func projection(_ point: CGPoint, onto axis: CGPoint) -> CGFloat {
         point.x * axis.x + point.y * axis.y
+    }
+
+    /// Find the four corners of a contour by maximizing the four diagonal
+    /// directions over its perimeter points. For both axis-aligned and
+    /// rotated rectangles, the corners are extremes along these directions,
+    /// so this works without an explicit rotated-rect fit.
+    ///
+    /// Vision normalized coords are bottom-origin; we scale them into our
+    /// pixel space the same way `bounds` is built, which leaves the y-axis
+    /// flipped relative to display. The corner ordering accounts for that
+    /// flip so the result is [TL, TR, BR, BL] in display terms, matching
+    /// the model polygon order (`PianoKeyGeometry.modelPolygon`).
+    private static func cornersFromContour(_ contour: VNContour,
+                                           frameSize: CGSize) -> [CGPoint] {
+        let pts = contour.normalizedPoints
+        guard !pts.isEmpty else { return [] }
+        var tlIdx = 0, trIdx = 0, brIdx = 0, blIdx = 0
+        var tlScore = -Float.infinity
+        var trScore = -Float.infinity
+        var brScore = -Float.infinity
+        var blScore = -Float.infinity
+        for (i, p) in pts.enumerated() {
+            // In our (Vision-derived) pixel coords, larger y = top of
+            // display. TL = small x, large y → max(y - x).
+            let tl = p.y - p.x
+            let tr = p.x + p.y
+            let br = p.x - p.y
+            let bl = -p.x - p.y
+            if tl > tlScore { tlScore = tl; tlIdx = i }
+            if tr > trScore { trScore = tr; trIdx = i }
+            if br > brScore { brScore = br; brIdx = i }
+            if bl > blScore { blScore = bl; blIdx = i }
+        }
+        let w = frameSize.width
+        let h = frameSize.height
+        func scale(_ idx: Int) -> CGPoint {
+            CGPoint(x: CGFloat(pts[idx].x) * w, y: CGFloat(pts[idx].y) * h)
+        }
+        return [scale(tlIdx), scale(trIdx), scale(brIdx), scale(blIdx)]
     }
 }
