@@ -486,6 +486,16 @@ class ViewController: NSViewController {
         timer = Timer.scheduledTimer(timeInterval: 1/30.0, target: self, selector: #selector(fireTimer), userInfo: nil, repeats: true)
         propTimer?.invalidate()
         propTimer = Timer.scheduledTimer(timeInterval: 2.0, target: self, selector: #selector(propertyTimer), userInfo: nil, repeats: true)
+
+        // The overhead simulator exists to exercise the alignment overlay
+        // without a physical rig, so auto-enable the overhead piano when a
+        // simulated source is active. The composite (and overlay) renders
+        // every frame via fireTimer regardless of a connected consumer, so
+        // PIANOCAM_SNAPSHOT_DIR captures the aligned result for inspection.
+        if simulatedOverheadLabel != nil {
+            toggleOverheadPiano(true)
+            hostState.overheadKeyboardEnabled = true
+        }
     }
 
     private func installSwiftUIPanel() {

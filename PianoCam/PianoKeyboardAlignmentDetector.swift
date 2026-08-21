@@ -192,6 +192,18 @@ final class PianoKeyboardAlignmentDetector {
                 configuration: PianoKeyboardConfiguration) throws -> PianoKeyboardAlignment? {
         let frameSize = CGSize(width: CVPixelBufferGetWidth(pixelBuffer),
                                height: CVPixelBufferGetHeight(pixelBuffer))
+        // Preferred path for overhead views: rectify the keyboard's bright
+        // white-key bed to a fronto-parallel grid, detect black keys on that
+        // clean grid, then compose model->rect (affine) with rect->image
+        // (homography). This recovers TRUE perspective. The contour+affine
+        // attempts below assume the keyboard is near-affine in the image and
+        // collapse into a thin band on oblique angles, so we only fall
+        // through to them when rectification can't find a keyboard.
+        if let rectified = attemptRectified(pixelBuffer: pixelBuffer,
+                                            configuration: configuration,
+                                            frameSize: frameSize) {
+            return rectified
+        }
         // Three candidate sources, pick the highest-confidence result:
         //  - contour kind=black (works best on light-backed images)
         //  - contour kind=white (works on dark-backed photos)
@@ -211,6 +223,268 @@ final class PianoKeyboardAlignmentDetector {
                                    frameSize: frameSize)
         ]
         return attempts.compactMap { $0 }.max { $0.confidence < $1.confidence }
+    }
+
+    private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
+
+    // Depth padding applied to the detected white-key band before warping,
+    // so the scalloped band edge doesn't clip the black keys out of the
+    // rectified image. Front/back are extended by these fractions of the
+    // band depth. The model<->rect y mapping below is derived from them.
+    private static let backPad: CGFloat = 0.6
+    private static let frontPad: CGFloat = 0.2
+
+    /// Rectify-then-detect alignment. All coordinates are in Vision's
+    /// bottom-left pixel space, matching the contour paths and the
+    /// homography convention the renderer expects.
+    private func attemptRectified(pixelBuffer: CVPixelBuffer,
+                                  configuration: PianoKeyboardConfiguration,
+                                  frameSize: CGSize) -> PianoKeyboardAlignment? {
+        let W = frameSize.width, H = frameSize.height
+        let input = CIImage(cvPixelBuffer: pixelBuffer)
+
+        // ---- Phase 1: bright white-key band -> keyboard quad ----
+        let mono = input.applyingFilter("CIColorControls",
+            parameters: [kCIInputSaturationKey: 0.0, kCIInputContrastKey: 1.4])
+        let thresh = mono.applyingFilter("CIColorThreshold",
+            parameters: ["inputThreshold": 0.62])
+        let closed = thresh
+            .applyingFilter("CIMorphologyMaximum", parameters: [kCIInputRadiusKey: 12.0])
+            .applyingFilter("CIMorphologyMinimum", parameters: [kCIInputRadiusKey: 12.0])
+        guard let maskCG = ciContext.createCGImage(closed, from: CGRect(x: 0, y: 0, width: W, height: H)),
+              let maskBuf = Self.bgraBuffer(from: maskCG) else { return nil }
+        let mreq = VNDetectContoursRequest()
+        mreq.detectsDarkOnLight = false
+        mreq.maximumImageDimension = 1024
+        try? VNImageRequestHandler(cvPixelBuffer: maskBuf, orientation: .up, options: [:]).perform([mreq])
+        guard let mObs = mreq.results?.first as? VNContoursObservation else { return nil }
+
+        func pointsOf(_ c: VNContour) -> [CGPoint] {
+            (0..<c.pointCount).map { i in
+                let p = c.normalizedPoints[Int(i)]
+                return CGPoint(x: CGFloat(p.x) * W, y: CGFloat(p.y) * H)
+            }
+        }
+        // Principal axis of a point set (long axis points +x).
+        func axisOf(_ pts: [CGPoint]) -> (center: CGPoint, axis: CGPoint, perp: CGPoint) {
+            let n = CGFloat(pts.count)
+            let cx = pts.reduce(0) { $0 + $1.x } / n, cy = pts.reduce(0) { $0 + $1.y } / n
+            var xx: CGFloat = 0, xy: CGFloat = 0, yy: CGFloat = 0
+            for p in pts { let dx = p.x - cx, dy = p.y - cy; xx += dx*dx; xy += dx*dy; yy += dy*dy }
+            let a = 0.5 * atan2(2*xy, xx - yy)
+            var ax = CGPoint(x: cos(a), y: sin(a))
+            if ax.x < 0 { ax = CGPoint(x: -ax.x, y: -ax.y) }
+            return (CGPoint(x: cx, y: cy), ax, CGPoint(x: -ax.y, y: ax.x))
+        }
+        // Select the keyboard band: a wide, short bright region.
+        var band: VNContour?
+        var bandWidth: CGFloat = 0
+        for c in mObs.topLevelContours where c.pointCount > 50 {
+            let pts = pointsOf(c)
+            let (ctr, ax, perp) = axisOf(pts)
+            var u0 = CGFloat.infinity, u1 = -CGFloat.infinity, v0 = CGFloat.infinity, v1 = -CGFloat.infinity
+            for p in pts {
+                let dx = p.x - ctr.x, dy = p.y - ctr.y
+                let u = dx*ax.x + dy*ax.y, v = dx*perp.x + dy*perp.y
+                u0 = min(u0, u); u1 = max(u1, u); v0 = min(v0, v); v1 = max(v1, v)
+            }
+            let w = u1 - u0, h = v1 - v0
+            let aspect = max(w, h) / max(min(w, h), 1)
+            guard max(w, h) >= 0.45 * W, aspect >= 2.5, aspect <= 14 else { continue }
+            if max(w, h) > bandWidth { bandWidth = max(w, h); band = c }
+        }
+        guard let band else { return nil }
+
+        // Four true corners (trapezoid-aware) via extreme sum/diff search in
+        // the rotated frame. perp points "up" (+y), so back = large v.
+        let bpts = pointsOf(band)
+        let (ctr, ax, perp) = axisOf(bpts)
+        func uv(_ p: CGPoint) -> (CGFloat, CGFloat) {
+            let dx = p.x - ctr.x, dy = p.y - ctr.y
+            return (dx*ax.x + dy*ax.y, dx*perp.x + dy*perp.y)
+        }
+        var backLeft = bpts[0], backRight = bpts[0], frontLeft = bpts[0], frontRight = bpts[0]
+        var mBL = -CGFloat.infinity, mBR = -CGFloat.infinity, mFL = -CGFloat.infinity, mFR = -CGFloat.infinity
+        for p in bpts {
+            let (u, v) = uv(p)
+            if (-u + v) > mBL { mBL = -u + v; backLeft = p }
+            if ( u + v) > mBR { mBR =  u + v; backRight = p }
+            if (-u - v) > mFL { mFL = -u - v; frontLeft = p }
+            if ( u - v) > mFR { mFR =  u - v; frontRight = p }
+        }
+        func extend(_ a: CGPoint, _ b: CGPoint, _ f: CGFloat) -> CGPoint {
+            CGPoint(x: a.x + f*(a.x - b.x), y: a.y + f*(a.y - b.y))
+        }
+        let qBL = extend(backLeft, frontLeft, Self.backPad)
+        let qBR = extend(backRight, frontRight, Self.backPad)
+        let qFL = extend(frontLeft, backLeft, Self.frontPad)
+        let qFR = extend(frontRight, backRight, Self.frontPad)
+
+        // ---- Phase 2: warp to canonical fronto-parallel image ----
+        // Canonical size from keyboard geometry (52 white keys); decouples
+        // detection from the unstable detected-quad depth.
+        let RW: CGFloat = 1920, RH: CGFloat = 320
+        let corr = input.applyingFilter("CIPerspectiveCorrection", parameters: [
+            "inputTopLeft": CIVector(cgPoint: qBL), "inputTopRight": CIVector(cgPoint: qBR),
+            "inputBottomRight": CIVector(cgPoint: qFR), "inputBottomLeft": CIVector(cgPoint: qFL)])
+        let ext = corr.extent
+        guard ext.width > 1, ext.height > 1 else { return nil }
+        let rectImg = corr
+            .transformed(by: CGAffineTransform(translationX: -ext.minX, y: -ext.minY))
+            .transformed(by: CGAffineTransform(scaleX: RW/ext.width, y: RH/ext.height))
+        let rw = Int(RW), rh = Int(RH)
+        guard let rectCG = ciContext.createCGImage(rectImg, from: CGRect(x: 0, y: 0, width: RW, height: RH)),
+              let rgba = Self.rgbaPixels(from: rectCG, width: rw, height: rh) else { return nil }
+
+        // ---- Phase 3: black-key x-centers via column-darkness projection ----
+        // Buffer row 0 == top == back. Black keys interleave with white in
+        // the 0.42..0.60 depth band (front of the padded region is darker
+        // background, the white-only region is lighter).
+        let r0 = Int(0.42 * RH), r1 = Int(0.60 * RH)
+        var dark = [CGFloat](repeating: 0, count: rw)
+        for x in 0..<rw {
+            var s: CGFloat = 0
+            for y in r0..<r1 {
+                let i = (y*rw + x) * 4
+                let luma = 0.3*CGFloat(rgba[i]) + 0.59*CGFloat(rgba[i+1]) + 0.11*CGFloat(rgba[i+2])
+                s += (255 - luma) / 255
+            }
+            dark[x] = s / CGFloat(r1 - r0)
+        }
+        var sm = dark
+        for x in 2..<(rw-2) { sm[x] = (dark[x-2]+dark[x-1]+dark[x]+dark[x+1]+dark[x+2]) / 5 }
+        let peak = sm.max() ?? 1
+        let level = 0.45 * peak
+        var runs: [(Int, Int)] = []
+        var start = -1
+        for x in 0..<rw {
+            if sm[x] >= level { if start < 0 { start = x } }
+            else { if start >= 0 { runs.append((start, x-1)); start = -1 } }
+        }
+        if start >= 0 { runs.append((start, rw-1)) }
+        let bkW = 0.58 * (RW / 52.0)
+        let detected = runs
+            .filter { CGFloat($0.1 - $0.0) >= bkW*0.45 && CGFloat($0.1 - $0.0) <= bkW*2.2 }
+            .map { CGFloat($0.0 + $0.1) / 2 }
+        guard detected.count >= 10 else { return nil }
+
+        // ---- Phase 4a: fit model->rect x map (rx = a*model_x + b) ----
+        let geometry = PianoKeyboardGeometry(configuration: configuration)
+        let blackKeys = geometry.blackKeys
+        guard !blackKeys.isEmpty else { return nil }
+        let whiteCount = CGFloat(geometry.whiteKeyCount)
+        var bestA = RW / whiteCount, bestB: CGFloat = 0, bestInliers = -1
+        var a = (RW / whiteCount) * 0.88
+        let aHi = (RW / whiteCount) * 1.12
+        let aStep = (RW / whiteCount) * 0.01
+        while a <= aHi {
+            var b: CGFloat = -90
+            while b <= 90 {
+                var inl = 0
+                for d in detected {
+                    for k in blackKeys where abs((a*k.modelCenter.x + b) - d) <= 11 { inl += 1; break }
+                }
+                if inl > bestInliers { bestInliers = inl; bestA = a; bestB = b }
+                b += 6
+            }
+            a += aStep
+        }
+        // least-squares refine on nearest-neighbour inlier pairs
+        var sx2: CGFloat = 0, sxy: CGFloat = 0, sX: CGFloat = 0, sY: CGFloat = 0, nP: CGFloat = 0
+        var residual: CGFloat = 0
+        for d in detected {
+            var nearestModelX: CGFloat?
+            var bestDist: CGFloat = 12
+            for k in blackKeys {
+                let e = abs((bestA*k.modelCenter.x + bestB) - d)
+                if e < bestDist { bestDist = e; nearestModelX = k.modelCenter.x }
+            }
+            if let mx = nearestModelX { sx2 += mx*mx; sxy += mx*d; sX += mx; sY += d; nP += 1; residual += bestDist }
+        }
+        guard nP >= 6 else { return nil }
+        let det = nP*sx2 - sX*sX
+        if abs(det) > 1e-6 {
+            bestA = (nP*sxy - sX*sY) / det
+            bestB = (sY - bestA*sX) / nP
+        }
+        let inlierCount = Int(nP)
+        let medianResidual = residual / nP
+
+        // model->rect y map, derived from the depth padding. The padded span
+        // is (1 + backPad + frontPad)*D measured from the front edge minus
+        // frontPad*D. model y=0 (front) and y=1 (back/felt) land at:
+        let span = 1 + Self.backPad + Self.frontPad
+        let yFront = Self.frontPad / span                 // fraction from bottom(front)
+        let yBack = (Self.frontPad + 1) / span
+        // rect bottom-left: ry grows toward back(top). ry = (yFront + (yBack-yFront)*model_y)*RH
+        let yc0 = yFront * RH
+        let yc1 = (yBack - yFront) * RH
+
+        // ---- Phase 4b: rect->image homography, then compose ----
+        // rect canonical corners in bottom-left: front=y 0, back=y RH.
+        let rectCorners = [CGPoint(x: 0, y: RH), CGPoint(x: RW, y: RH),   // back-left, back-right
+                           CGPoint(x: RW, y: 0), CGPoint(x: 0, y: 0)]      // front-right, front-left
+        let imageCorners = [qBL, qBR, qFR, qFL]
+        guard let hRI = PianoHomography.fit(modelPoints: rectCorners, imagePoints: imageCorners) else { return nil }
+        // model->rect affine M = [a 0 b; 0 yc1 yc0; 0 0 1];
+        // compose H = H_RI * M (so image = H_RI(M(model))).
+        let h = hRI
+        let H00 = h.h00 * bestA
+        let H01 = h.h01 * yc1
+        let H02 = h.h00 * bestB + h.h01 * yc0 + h.h02
+        let H10 = h.h10 * bestA
+        let H11 = h.h11 * yc1
+        let H12 = h.h10 * bestB + h.h11 * yc0 + h.h12
+        let H20 = h.h20 * bestA
+        let H21 = h.h21 * yc1
+        let H22 = h.h20 * bestB + h.h21 * yc0 + 1
+        guard abs(H22) > 1e-9 else { return nil }
+        let composed = PianoHomography(
+            h00: H00/H22, h01: H01/H22, h02: H02/H22,
+            h10: H10/H22, h11: H11/H22, h12: H12/H22,
+            h20: H20/H22, h21: H21/H22)
+
+        let confidence = min(1.0, 0.45 + Double(inlierCount) * 0.022)
+        return PianoKeyboardAlignment(
+            configuration: configuration,
+            homography: composed,
+            frameSize: frameSize,
+            confidence: confidence,
+            medianErrorPixels: medianResidual,
+            matchedKeyCount: inlierCount)
+    }
+
+    /// Draw a CGImage into a fresh BGRA pixel buffer for Vision.
+    private static func bgraBuffer(from cg: CGImage) -> CVPixelBuffer? {
+        let w = cg.width, h = cg.height
+        var pb: CVPixelBuffer?
+        CVPixelBufferCreate(kCFAllocatorDefault, w, h, kCVPixelFormatType_32BGRA,
+                            [kCVPixelBufferCGImageCompatibilityKey: true] as CFDictionary, &pb)
+        guard let buf = pb else { return nil }
+        CVPixelBufferLockBaseAddress(buf, [])
+        defer { CVPixelBufferUnlockBaseAddress(buf, []) }
+        guard let ctx = CGContext(data: CVPixelBufferGetBaseAddress(buf), width: w, height: h,
+                                  bitsPerComponent: 8, bytesPerRow: CVPixelBufferGetBytesPerRow(buf),
+                                  space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
+        else { return nil }
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+        return buf
+    }
+
+    /// Render a CGImage into a tightly-packed RGBA8 byte array (row 0 = top).
+    private static func rgbaPixels(from cg: CGImage, width w: Int, height h: Int) -> [UInt8]? {
+        var px = [UInt8](repeating: 0, count: w * h * 4)
+        let ok: Bool = px.withUnsafeMutableBytes { raw -> Bool in
+            guard let ctx = CGContext(data: raw.baseAddress, width: w, height: h,
+                                      bitsPerComponent: 8, bytesPerRow: w * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            else { return false }
+            ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+            return true
+        }
+        return ok ? px : nil
     }
 
     private func attemptRectangles(pixelBuffer: CVPixelBuffer,
